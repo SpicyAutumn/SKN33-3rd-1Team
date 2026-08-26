@@ -11,8 +11,8 @@
 ## 2. 최초 1회 설정
 
 ```bash
-git clone <REPOSITORY_URL>
-cd <PROJECT_DIRECTORY>
+git clone https://github.com/SpicyAutumn/SKN33-3rd-1Team.git
+cd SKN33-3rd-1Team
 python -m venv .venv
 ```
 
@@ -179,4 +179,3 @@ git merge origin/main
 - 강제 push와 브랜치 삭제 금지
 
 권한과 메뉴는 저장소 설정에 따라 다를 수 있으므로 팀 리더가 실제 화면에서 확인합니다.
-

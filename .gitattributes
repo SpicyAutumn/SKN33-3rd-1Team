@@ -1,0 +1,18 @@
+# Normalize text files to avoid operating-system-specific line-ending changes.
+* text=auto eol=lf
+
+# Keep Windows command scripts in CRLF when they are added later.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Treat common binary and document assets as binary.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.docx binary
+*.pptx binary
+*.xlsx binary
+

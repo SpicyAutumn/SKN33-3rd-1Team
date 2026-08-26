@@ -1,0 +1,22 @@
+# 수업 권장 Python: 3.12
+# 프로젝트 착수 후 팀 공통 환경에서 검증한 직접 의존성 버전을 고정합니다.
+
+# Environment and data
+python-dotenv
+pandas
+pypdf
+
+# LLM / RAG
+openai
+langchain
+langchain-openai
+langgraph
+
+# Vector DB: 현재 수업 예제 기준의 임시 선택, 주제 확정 후 교체 가능
+pinecone
+langchain-pinecone
+
+# Application and test
+streamlit
+pytest
+

@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environment and IDE
+.venv/
+venv/
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# Secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+*.pem
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local vector stores and generated outputs
+vectorstore/
+chroma_db/
+faiss_index/
+outputs/
+logs/
+
+# Raw/restricted data: 팀이 공개 가능 여부를 확인한 파일만 예외 처리
+data/raw/*
+!data/raw/.gitkeep
+
+# Processed data may be large or contain original text
+data/processed/*
+!data/processed/.gitkeep
+

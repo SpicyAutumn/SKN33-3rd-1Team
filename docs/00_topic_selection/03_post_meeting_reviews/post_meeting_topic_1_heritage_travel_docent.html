@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="2차 회의 후속 주제 보완안 1">
+  <title>방문 도우미 + 개인 맞춤형 AI 문화유산 여행 도슨트</title>
+  <style>
+    :root{--navy:#14253d;--navy2:#24415e;--teal:#087f79;--teal-soft:#e2f5f2;--gold:#d39a2c;--gold-soft:#fff6dc;--ink:#172033;--muted:#5c687b;--line:#dce3eb;--paper:#fff;--surface:#f3f6f9;--danger:#9d3c45;--shadow:0 18px 48px rgba(20,37,61,.10);--radius:20px}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);background:radial-gradient(circle at 8% 2%,rgba(8,127,121,.11),transparent 25rem),radial-gradient(circle at 95% 8%,rgba(211,154,44,.13),transparent 24rem),var(--surface);font-family:"Pretendard","Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",sans-serif;font-size:16px;line-height:1.72;word-break:keep-all}a{color:#076b9f;text-underline-offset:3px}a:hover{color:var(--teal)}.skip{position:fixed;left:14px;top:10px;z-index:50;padding:9px 13px;border-radius:10px;color:#fff;background:var(--navy);transform:translateY(-160%)}.skip:focus{transform:none}
+    .hero{position:relative;overflow:hidden;color:#fff;background:linear-gradient(135deg,#10243d 0%,#183c54 58%,#087f79 100%);border-bottom:4px solid var(--gold)}.hero:after{content:"";position:absolute;right:-110px;bottom:-210px;width:500px;height:500px;border:72px solid rgba(255,255,255,.055);border-radius:50%}.hero-inner{position:relative;z-index:1;width:min(1180px,calc(100% - 44px));margin:auto;padding:56px 0 50px}.eyebrow{display:flex;align-items:center;gap:10px;margin:0 0 14px;color:#bff3ec;font-weight:800;font-size:.86rem;letter-spacing:.09em}.eyebrow:before{content:"";width:30px;height:3px;border-radius:9px;background:var(--gold)}.hero h1{max-width:950px;margin:0;font-size:clamp(2rem,4.2vw,3.4rem);line-height:1.17;letter-spacing:-.045em}.hero p{max-width:900px;margin:18px 0 0;color:#dce9f0;font-size:1.08rem}.chips{display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.chips span{padding:7px 12px;border:1px solid rgba(255,255,255,.25);border-radius:999px;background:rgba(255,255,255,.08);font-size:.88rem}
+    .layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:28px;width:min(1380px,calc(100% - 40px));margin:34px auto 70px;align-items:start}.sidebar{position:sticky;top:22px;padding:20px 16px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.93);box-shadow:0 10px 30px rgba(20,37,61,.07);backdrop-filter:blur(12px)}.sidebar h2{margin:0 0 12px;font-size:.8rem;letter-spacing:.1em;color:var(--navy);text-transform:uppercase}.sidebar ol{list-style:none;margin:0;padding:0}.sidebar li+li{margin-top:3px}.sidebar a{display:grid;grid-template-columns:30px 1fr;gap:8px;align-items:center;padding:8px;border-radius:10px;color:#35445b;font-size:.87rem;font-weight:700;line-height:1.35;text-decoration:none}.sidebar a:hover{background:var(--teal-soft);color:var(--teal)}.sidebar a span{display:grid;place-items:center;width:27px;height:27px;border-radius:8px;color:#fff;background:var(--navy2);font-size:.7rem}.actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:17px}.actions button,.actions a{display:block;padding:9px 6px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--navy);font:inherit;font-size:.78rem;font-weight:800;text-align:center;text-decoration:none;cursor:pointer}.actions button:hover,.actions a:hover{border-color:var(--teal);color:var(--teal)}
+    main{min-width:0;padding:36px clamp(24px,4vw,58px) 54px;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper);box-shadow:var(--shadow)}main>hr:first-of-type{margin-top:24px}.page-heading{margin:6px 0 30px;padding:17px 20px;border-left:6px solid var(--gold);border-radius:0 14px 14px 0;background:linear-gradient(90deg,var(--gold-soft),#fff);color:var(--navy);font-size:clamp(1.45rem,2.6vw,2rem);line-height:1.3}h2{margin:48px 0 17px;padding-bottom:10px;border-bottom:2px solid var(--line);color:var(--navy);font-size:1.46rem;line-height:1.35;letter-spacing:-.025em}h3{margin:32px 0 12px;color:var(--teal);font-size:1.18rem}h4{margin:25px 0 9px;color:var(--navy2)}p{margin:10px 0 16px}strong{color:#10243d}code{padding:.15em .4em;border:1px solid #dce7e7;border-radius:6px;background:#f0f7f6;color:#096f69;font-family:Consolas,"D2Coding",monospace;font-size:.9em}ul,ol{margin:10px 0 21px;padding-left:1.45rem}li{margin:6px 0}li::marker{color:var(--teal);font-weight:800}hr{margin:42px 0;border:0;border-top:1px solid var(--line)}
+    .callout{margin:20px 0 27px;padding:20px 22px;border:1px solid #bfe1dc;border-left:6px solid var(--teal);border-radius:14px;background:linear-gradient(135deg,var(--teal-soft),#f8fffe)}.callout p{margin:4px 0}.flow{overflow:auto;margin:18px 0 25px;padding:22px 24px;border:1px solid #294a67;border-radius:16px;background:#12263d;color:#eaf4f8;box-shadow:inset 0 1px rgba(255,255,255,.06);line-height:1.65}.flow code{padding:0;border:0;background:none;color:inherit;font-size:.92rem;white-space:pre}.table-wrap{overflow-x:auto;margin:16px 0 29px;border:1px solid var(--line);border-radius:14px;box-shadow:0 7px 20px rgba(20,37,61,.05)}table{width:100%;border-collapse:collapse;min-width:650px;background:#fff}th,td{padding:13px 15px;border-bottom:1px solid var(--line);border-right:1px solid #edf1f5;text-align:left;vertical-align:top}th:last-child,td:last-child{border-right:0}th{color:#fff;background:var(--navy2);font-size:.9rem}tbody tr:nth-child(even){background:#f8fafc}tbody tr:hover{background:#edf8f6}tbody tr:last-child td{border-bottom:0}.checkbox{display:inline-grid;place-items:center;width:1.05rem;height:1.05rem;margin-right:.42rem;border:2px solid #91a0b2;border-radius:4px;vertical-align:-.12rem;color:#fff;background:#fff;font-size:.7rem}.checkbox.checked{border-color:var(--teal);background:var(--teal)}.page-break{height:1px;margin:52px 0 34px;background:linear-gradient(90deg,transparent,var(--line),transparent)}footer{padding:28px 20px;color:var(--muted);text-align:center;font-size:.86rem}
+    @media(max-width:920px){.layout{display:block;width:min(100% - 24px,900px)}.sidebar{position:static;margin-bottom:18px}.sidebar ol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}main{padding:28px 20px 42px}.hero-inner{width:min(100% - 32px,900px);padding:42px 0 38px}}@media(max-width:600px){body{font-size:15px;word-break:normal}.sidebar ol{display:block}.hero h1{font-size:2rem}.hero p{font-size:1rem}.layout{width:calc(100% - 14px);margin-top:14px}main{padding:22px 15px 35px;border-radius:14px}h2{font-size:1.28rem}.page-heading{font-size:1.28rem}.table-wrap{margin-left:-6px;margin-right:-6px}}
+    @media print{@page{size:A4;margin:15mm 13mm}body{background:#fff;font-size:10.3pt}.hero{background:var(--navy)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}.hero-inner{width:auto;padding:18mm 8mm 13mm}.hero h1{font-size:25pt}.hero:after,.sidebar,footer{display:none}.layout{display:block;width:auto;margin:0}main{padding:0;border:0;box-shadow:none}.page-heading{break-after:avoid;margin-top:6mm}.page-break{break-after:page;height:0;margin:0;background:none}h2,h3{break-after:avoid}.table-wrap,.callout,.flow{break-inside:avoid}.table-wrap{overflow:visible;box-shadow:none}table{min-width:0;font-size:8.6pt}th,td{padding:6px 7px}a{color:inherit;text-decoration:none}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#content">본문 바로가기</a>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">결합 주제 보완안 · 2026.08.26</div>
+      <h1>방문 도우미 + 개인 맞춤형 AI 문화유산 여행 도슨트</h1>
+      <p>2차 회의 후속 주제 보완안 1 — 팀 공유 및 후속 검토용 독립 문서</p>
+      <div class="chips"><span>RAG</span><span>Vector DB</span><span>LangChain</span><span>LangGraph</span><span>팀 검토 전</span></div>
+    </div>
+  </header>
+  <div class="layout">
+    <aside class="sidebar" aria-label="문서 목차">
+      <h2>Contents</h2>
+      <ol><li><a href="#방문-도우미-개인-맞춤형-ai-문화유산-여행-도슨트"><span>01</span>방문 도우미 + 개인 맞춤형 AI 문화유산 여행 도슨트</a></li>
+<li><a href="#1-권장-주제명"><span>02</span>1. 권장 주제명</a></li>
+<li><a href="#2-한-문장-정의"><span>03</span>2. 한 문장 정의</a></li>
+<li><a href="#3-결합-방향에-대한-판단"><span>04</span>3. 결합 방향에 대한 판단</a></li>
+<li><a href="#4-해결하려는-문제"><span>05</span>4. 해결하려는 문제</a></li>
+<li><a href="#5-핵심-사용자와-b2b-b2c-구조"><span>06</span>5. 핵심 사용자와 B2B/B2C 구조</a></li>
+<li><a href="#6-핵심-기능과-우선순위"><span>07</span>6. 핵심 기능과 우선순위</a></li>
+<li><a href="#7-범용-gemini-chatgpt와-구분하려면"><span>08</span>7. 범용 Gemini·ChatGPT와 구분하려면</a></li>
+<li><a href="#8-데이터-구성과-수집-방법"><span>09</span>8. 데이터 구성과 수집 방법</a></li>
+<li><a href="#9-권장-시스템-구조"><span>10</span>9. 권장 시스템 구조</a></li>
+<li><a href="#10-권장-mvp"><span>11</span>10. 권장 MVP</a></li>
+<li><a href="#11-주요-제한요소와-개선안"><span>12</span>11. 주요 제한요소와 개선안</a></li>
+<li><a href="#12-테스트-및-평가-기준"><span>13</span>12. 테스트 및 평가 기준</a></li>
+<li><a href="#13-다음-의사결정-전에-확인할-사항"><span>14</span>13. 다음 의사결정 전에 확인할 사항</a></li>
+<li><a href="#14-현재-판단"><span>15</span>14. 현재 판단</a></li></ol>
+      <div class="actions"><button type="button" onclick="window.print()">인쇄 / PDF</button><a href="#content">맨 위로</a></div>
+    </aside>
+    <main id="content"><h2 id="방문-도우미-개인-맞춤형-ai-문화유산-여행-도슨트">방문 도우미 + 개인 맞춤형 AI 문화유산 여행 도슨트</h2>
+<aside class="callout"><p><strong>문서 상태:</strong> 2차 회의 결과에 따른 후속 구체화 초안 — 팀 검토 전</p><p><strong>작성 기준일:</strong> 2026-08-26</p><p><strong>관련 회의록:</strong> <a href="../02_meeting_records/topic_selection_meeting_2026-08-26.md">2026-08-26 2차 주제 선정 회의록</a></p><p><strong>주의:</strong> 이 문서는 회의에서 확인한 결합 방향을 구체화한 검토안이며, 팀 합의·최종 선정 결과가 아닙니다.</p></aside>
+<hr>
+<h1 id="페이지-1-2-서비스-정의와-사용자-경험" class="page-heading">페이지 1/2 — 서비스 정의와 사용자 경험</h1>
+<h2 id="1-권장-주제명">1. 권장 주제명</h2>
+<h3 id="지역박물관-맞춤-방문-플래너-ai-문화유산-여행-도슨트">지역박물관 맞춤 방문 플래너 &amp; AI 문화유산 여행 도슨트</h3>
+<h2 id="2-한-문장-정의">2. 한 문장 정의</h2>
+<aside class="callout"><p>지방 국립박물관을 처음 방문하는 일반 여행자의 방문시간·관심 주제·이동조건을 바탕으로 실행 가능한 관람계획을 만들고, 현장에서 선택한 유물에 대해 공식 자료와 출처에 근거한 맞춤 해설과 후속 질문을 제공하는 RAG 기반 여행 도슨트</p></aside>
+<h2 id="3-결합-방향에-대한-판단">3. 결합 방향에 대한 판단</h2>
+<p>두 아이디어는 다음처럼 <strong>방문 전과 방문 중</strong>을 연결할 때 자연스럽게 결합됩니다.</p>
+<pre class="flow language-text"><code>방문 전
+방문일·체류시간·관심사 입력
+        ↓
+운영 여부·기본 교통·주차 확인
+        ↓
+시간 안에 가능한 관람 주제와 유물 순서 추천
+        ↓
+외부 지도 서비스로 실제 이동
+
+방문 중
+장소·유물 선택 또는 QR 입력
+        ↓
+관심사와 설명 수준에 맞춘 AI 도슨트
+        ↓
+자유 질문 → 출처 제시 → 근거 부족 시 답변 보류
+        ↓
+선택형 퀴즈·관람 기록·다음 유물 추천</code></pre>
+<p>결합의 핵심은 기능을 많이 넣는 것이 아니라, <strong>추천한 관람계획과 현장 도슨트가 같은 유물·공식 자료·사용자 조건을 공유하는 것</strong>입니다. 방문계획만 제공하면 일반 일정 앱에 가까워지고, 해설만 제공하면 일반 문화유산 챗봇에 가까워집니다. 두 기능이 연결되어야 사용자에게 “왜 이 유물을 지금 봐야 하는지”까지 설명할 수 있습니다.</p>
+<h2 id="4-해결하려는-문제">4. 해결하려는 문제</h2>
+<p>일반 여행자는 박물관 방문 전후에 다음 정보를 따로 찾아야 합니다.</p>
+<ul><li>방문일의 휴관 여부, 운영시간과 입장 마감</li><li>주차장 또는 대중교통과 실제 길찾기</li><li>제한된 시간에 볼 만한 전시와 대표 유물</li><li>유물별로 길고 어려운 공식 설명을 이해하기 쉬운 해설</li><li>관람 중 생긴 질문에 대한 신뢰할 수 있는 답변</li></ul>
+<p>범용 생성형 AI는 질문에 답하거나 일반적인 일정을 제안할 수 있지만, 대상 박물관의 실제 소장품·운영정보·관람시간 제약을 한 흐름에서 검증하고 출처와 기준일을 일관되게 보여준다고 보장할 수는 없습니다.</p>
+<h2 id="5-핵심-사용자와-b2b-b2c-구조">5. 핵심 사용자와 B2B/B2C 구조</h2>
+<h3 id="mvp-핵심-사용자-b2c">MVP 핵심 사용자 — B2C</h3>
+<aside class="callout"><p><strong>지방 국립박물관을 처음 방문하며 1~3시간 안에 무엇을 볼지 정하고 싶은 일반 여행자</strong></p></aside>
+<p>직업이나 세부 나이를 필수로 받지 않고, 서비스 결과에 실제로 영향을 주는 조건만 입력받습니다.</p>
+<ul><li>관심 주제: 왕실·생활·전쟁·종교·미술 등</li><li>설명 수준: 쉬운 설명 / 일반 설명 / 심화 설명</li><li>관람 깊이: 60분 핵심 / 120분 여유</li><li>이동수단: 자동차 / 대중교통</li><li>선택 조건: 유아·노약자 동반, 도보 최소화 등</li></ul>
+<h3 id="확장-가능한-b2b-고객">확장 가능한 B2B 고객</h3>
+<ul><li>지방 국립박물관 및 공립박물관</li><li>지역관광재단·지방자치단체 관광부서</li><li>여행·관광 플랫폼</li></ul>
+<p>B2B는 MVP의 관리자 화면을 크게 만드는 이유가 아니라, 향후 다음 가치를 설명하기 위한 확장 구조입니다.</p>
+<ul><li>소장품과 지역 관광정보의 노출 확대</li><li>관람객 관심사와 질문 유형의 익명 통계</li><li>다국어·무장애 해설 확장</li><li>지역 내 체류시간과 주변 방문 연계</li></ul>
+<h2 id="6-핵심-기능과-우선순위">6. 핵심 기능과 우선순위</h2>
+<div class="table-wrap"><table><thead><tr><th>구분</th><th>기능</th><th>MVP 포함</th><th>판단</th></tr></thead><tbody><tr><td>방문 가능성</td><td>휴관일·운영시간·입장 마감 확인</td><td>포함</td><td>잘못된 계획을 먼저 차단</td></tr><tr><td>기본 이동정보</td><td>주차장·주요 정류장·외부 길찾기 연결</td><td>포함</td><td>자체 경로 계산은 하지 않음</td></tr><tr><td>맞춤 관람계획</td><td>관심사와 60·120분 조건에 맞춘 유물 순서</td><td>포함</td><td>결합 서비스의 중심</td></tr><tr><td>AI 도슨트</td><td>공식 자료 기반 수준별 유물 해설</td><td>포함</td><td>RAG 핵심 기능</td></tr><tr><td>자유 질문</td><td>근거 검색·출처 표시·답변 보류</td><td>포함</td><td>환각 방지 검증 대상</td></tr><tr><td>현장 선택</td><td>유물명 검색 또는 미리 등록한 QR 코드</td><td>포함</td><td>위치추적 없이도 시연 가능</td></tr><tr><td>퀴즈·스탬프</td><td>관람한 유물 기반 간단한 퀴즈·기록</td><td>선택</td><td>핵심 기능 완성 후 추가</td></tr><tr><td>다국어</td><td>영어 등 외국어 해설</td><td>확장</td><td>번역 평가 부담으로 MVP 제외 권장</td></tr><tr><td>실시간 주차</td><td>현재 잔여 주차면 제공</td><td>제외</td><td>공식 API가 실제 제공되는 경우에만 확장</td></tr><tr><td>실내 내비게이션</td><td>현재 위치 기반 관내 길찾기</td><td>제외</td><td>도면·비콘·좌표 데이터 필요</td></tr></tbody></table></div>
+<h2 id="7-범용-gemini-chatgpt와-구분하려면">7. 범용 Gemini·ChatGPT와 구분하려면</h2>
+<p>“문화유산에 대해 대화할 수 있다”만으로는 차별성이 약합니다. 아래 요소를 실제로 구현해야 프로젝트 고유성이 생깁니다.</p>
+<div class="table-wrap"><table><thead><tr><th>범용 AI에 질문</th><th>권장 프로젝트</th></tr></thead><tbody><tr><td>사용자가 필요한 정보를 직접 설명</td><td>박물관·방문일·시간·관심사 입력 구조화</td></tr><tr><td>최신 운영정보와 소장 여부가 불확실할 수 있음</td><td>지정 기관의 공식 자료와 기준일 관리</td></tr><tr><td>답변과 실제 관람 순서가 분리됨</td><td>추천 유물 순서와 도슨트 대화 상태 연결</td></tr><tr><td>출처가 누락되거나 포괄적일 수 있음</td><td>문장별 또는 답변별 근거·원문 링크 제공</td></tr><tr><td>시간·휴관 조건 위반을 체계적으로 검사하지 않음</td><td>프로그램 규칙으로 일정 제약 검사</td></tr><tr><td>어떤 질문에 답하지 말아야 하는지 불명확</td><td>근거 점수 미달 시 재검색 또는 답변 보류</td></tr></tbody></table></div>
+<aside class="callout"><p><strong>차별화 판단 기준:</strong> 발표에서 “같은 질문을 범용 LLM에 입력한 결과”와 “공식 RAG·시간 제약 검사를 거친 결과”를 비교할 수 있어야 합니다.</p></aside>
+<div class="page-break" aria-hidden="true"></div>
+<h1 id="페이지-2-2-데이터-구현-제한요소와-mvp" class="page-heading">페이지 2/2 — 데이터·구현·제한요소와 MVP</h1>
+<h2 id="8-데이터-구성과-수집-방법">8. 데이터 구성과 수집 방법</h2>
+<p>모든 데이터를 벡터DB에 넣지 않고 성격에 따라 분리합니다.</p>
+<div class="table-wrap"><table><thead><tr><th>데이터 계층</th><th>예시</th><th>저장·처리 방법</th><th>수집 후보</th></tr></thead><tbody><tr><td>문화유산 문서</td><td>유물 해설, 전시 설명, 관련 역사</td><td>원문 보존 → 청크 → 임베딩 → 벡터DB</td><td>e뮤지엄, 대상 박물관 공식 자료</td></tr><tr><td>유물 메타데이터</td><td>시대·재질·분류·전시관·교육 태그</td><td>관계형 DB 또는 메타데이터 필터</td><td>e뮤지엄·박물관 소장품 정보</td></tr><tr><td>시설 운영정보</td><td>운영시간·휴관일·요금·편의시설</td><td>관계형 DB·규칙 검사</td><td>박물관 공식 홈페이지</td></tr><tr><td>교통·주차</td><td>위치·운영시간·요금·정류장</td><td>관계형·공간 데이터, 필요 시 API</td><td>공공데이터포털·지자체 자료</td></tr><tr><td>사용자 세션</td><td>관심사·설명 수준·관람시간·선택 유물</td><td>세션 저장 후 최소 보관</td><td>서비스 입력</td></tr><tr><td>평가 정답셋</td><td>질문·정답 근거·관련 유물·답변 가능 여부</td><td>별도 평가 데이터셋</td><td>팀 수작업 검수</td></tr></tbody></table></div>
+<h3 id="권장-수집-순서">권장 수집 순서</h3>
+<ol><li>지방 국립박물관 <strong>1곳</strong>을 정합니다.</li><li>상설전시실 <strong>1개 또는 하나의 연결 주제</strong>를 정합니다.</li><li>대표 유물 <strong>30~50점</strong>의 설명·메타데이터·출처 URL을 수집합니다.</li><li>운영시간·휴관일·주차장·주요 정류장을 별도 표로 작성합니다.</li><li><code>시대 / 유형 / 재료 / 주제 / 난도 / 예상 관람시간</code> 태그를 정규화합니다.</li><li>사실 질문·비교 질문·추천 질문·답변 불가 질문으로 평가셋을 만듭니다.</li><li>원본과 전처리본을 분리하고 수집일·기준일·이용조건을 저장합니다.</li></ol>
+<p>공식 데이터 후보:</p>
+<ul><li><a href="https://emuseum.go.kr/" target="_blank" rel="noreferrer">e뮤지엄</a>: 전국 박물관 소장품 통합검색과 Open API 안내</li><li><a href="https://www.data.go.kr/data/15012896/openapi.do" target="_blank" rel="noreferrer">전국주차장정보 표준데이터</a>: 위치·운영시간·요금 등 정형정보 후보</li><li>대상 박물관 공식 홈페이지: 운영시간·휴관·관람안내의 최우선 출처</li></ul>
+<h2 id="9-권장-시스템-구조">9. 권장 시스템 구조</h2>
+<pre class="flow language-text"><code>사용자 조건
+박물관·방문일·관람시간·관심사·설명 수준
+                         ↓
+                 LangGraph 상태 관리
+       ┌─────────────────┼─────────────────┐
+  운영·시간 규칙      문화유산 Hybrid RAG      교통·주차 DB
+  휴관·마감 검사      키워드+벡터+필터 검색     위치·요금·정류장
+       └─────────────────┼─────────────────┘
+                         ↓
+              관람 후보 선정·시간 제약 검사
+                         ↓
+         관람 순서 + 근거 + 외부 지도 연결 제공
+                         ↓
+          현장 유물 선택 → 맞춤 해설 → 자유 질문
+                         ↓
+        근거 일치 검사 → 재검색 / 답변 / 답변 보류</code></pre>
+<ul><li><strong>LangChain:</strong> 문서 적재, 검색기, 프롬프트와 출력 파서 구성</li><li><strong>Vector DB·Hybrid RAG:</strong> 유물·전시 설명 검색과 메타데이터 필터</li><li><strong>LangGraph:</strong> 방문 조건 확인 → 검색 → 계획 검사 → 도슨트 → 재검색·보류 분기</li><li><strong>일반 코드·정형 DB:</strong> 운영시간, 소요시간, 요금과 조건 계산</li><li><strong>프롬프트:</strong> 설명 수준, 출처 표시, 추측 금지와 답변 형식 통제</li><li><strong>Fine-tuning:</strong> 시작부터 필수화하지 않고 기본 LLM → RAG → RAG+검증 비교 후 결정</li></ul>
+<h2 id="10-권장-mvp">10. 권장 MVP</h2>
+<aside class="callout"><p><strong>지방 국립박물관 한 곳의 대표 유물 30~50점을 대상으로, 60분·120분 맞춤 관람계획과 공식 출처 기반 현장 도슨트 대화를 제공하는 웹 서비스</strong></p></aside>
+<div class="table-wrap"><table><thead><tr><th>항목</th><th>권장 범위</th></tr></thead><tbody><tr><td>기관</td><td>지방 국립박물관 1곳</td></tr><tr><td>전시 범위</td><td>상설전시실 1개 또는 연결 주제 1개</td></tr><tr><td>유물</td><td>30~50점</td></tr><tr><td>핵심 사용자</td><td>처음 방문하는 일반 여행자</td></tr><tr><td>관람 모드</td><td>60분 핵심 / 120분 여유</td></tr><tr><td>설명 수준</td><td>쉬운 / 일반 / 심화</td></tr><tr><td>이동정보</td><td>운영 여부, 기본 주차·정류장, 외부 지도 연결</td></tr><tr><td>현장 입력</td><td>유물명 선택 또는 사전 등록 QR</td></tr><tr><td>AI 기능</td><td>관람 추천, 근거 기반 해설, 자유 질문, 답변 보류</td></tr><tr><td>제외</td><td>자체 길찾기, 전국 서비스, 실시간 주차 보장, 실내 위치추적</td></tr></tbody></table></div>
+<h2 id="11-주요-제한요소와-개선안">11. 주요 제한요소와 개선안</h2>
+<div class="table-wrap"><table><thead><tr><th>제한요소</th><th>위험</th><th>개선·권장안</th></tr></thead><tbody><tr><td>기능 과다</td><td>교통·지도 구현이 도슨트 RAG를 압도</td><td>교통은 기본정보와 외부 지도 연결로 제한</td></tr><tr><td>최신성 혼합</td><td>오래된 운영정보를 현재 사실처럼 안내</td><td>기준일·마지막 확인일·실시간 여부 표시</td></tr><tr><td>관람시간 추정</td><td>실제 이동·혼잡과 차이</td><td>고정된 예상 소요시간과 여유시간 적용, 보장 표현 금지</td></tr><tr><td>잘못된 역사 해설</td><td>신뢰도 저하</td><td>공식 자료 우선, 출처 표시, 근거 미달 시 보류</td></tr><tr><td>위치 기반 개인정보</td><td>불필요한 위치 저장</td><td>정확한 위치 대신 출발 지역 선택 허용, 세션 최소화</td></tr><tr><td>범용 LLM과 유사</td><td>단순 챗봇으로 보일 수 있음</td><td>계획 상태와 현장 대화를 연결하고 비교평가 실시</td></tr><tr><td>Fine-tuning 과잉</td><td>데이터 부족 상태에서 성능 설명이 어려움</td><td>표현 일관성 문제를 측정한 뒤 소규모 비교실험</td></tr></tbody></table></div>
+<h2 id="12-테스트-및-평가-기준">12. 테스트 및 평가 기준</h2>
+<ul><li>검색 적합성: 정답 근거가 Top-K에 포함되는 비율</li><li>사실 충실성: 답변 문장이 검색 근거와 일치하는 비율</li><li>출처 표시율: 사실 답변에 공식 출처가 포함된 비율</li><li>답변 보류율: 근거 없는 질문에서 추측하지 않은 비율</li><li>일정 유효성: 휴관·마감·총시간 조건 위반 건수</li><li>추천 타당성: 관심 주제와 추천 유물 태그의 일치율</li><li>연결성: 추천한 유물이 현장 도슨트 화면에서 그대로 이어지는 비율</li><li>비교 실험: 기본 LLM / RAG / RAG+검증의 정확도·환각률·응답시간 비교</li></ul>
+<h2 id="13-다음-의사결정-전에-확인할-사항">13. 다음 의사결정 전에 확인할 사항</h2>
+<ul><li><span class="checkbox" aria-hidden="true"></span>대상 지방 국립박물관 1곳</li><li><span class="checkbox" aria-hidden="true"></span>상설전시실 또는 연결 주제 1개</li><li><span class="checkbox" aria-hidden="true"></span>공식 소장품 30~50점 수집 가능 여부</li><li><span class="checkbox" aria-hidden="true"></span>관람시간 추정 규칙을 만들 수 있는지</li><li><span class="checkbox" aria-hidden="true"></span>주차장·정류장 정보를 실제로 확보할 수 있는지</li><li><span class="checkbox" aria-hidden="true"></span>서비스에 표시할 이미지별 이용조건</li><li><span class="checkbox" aria-hidden="true"></span>범용 LLM 비교용 대표 시나리오 5건</li><li><span class="checkbox" aria-hidden="true"></span>교통 기능과 도슨트 기능의 팀별 구현 담당 범위</li></ul>
+<h2 id="14-현재-판단">14. 현재 판단</h2>
+<div class="table-wrap"><table><thead><tr><th>항목</th><th>판단</th></tr></thead><tbody><tr><td>결합 타당성</td><td>높음 — 방문 전 계획과 현장 해설이 하나의 사용자 여정으로 이어짐</td></tr><tr><td>교육과정 기술 적합성</td><td>높음 — RAG·Vector DB·LangChain·LangGraph·환각 방지를 모두 설명 가능</td></tr><tr><td>구현 난도</td><td>중간~높음 — 교통·지도 범위를 제한할 때 관리 가능</td></tr><tr><td>핵심 위험</td><td>기능 과다, 최신성, 범용 LLM과의 차별성</td></tr><tr><td>권장 상태</td><td><strong>데이터 표본 검증 후보 — 팀 선정 전</strong></td></tr></tbody></table></div>
+<hr>
+<h3 id="팀-공유용-핵심-요약">팀 공유용 핵심 요약</h3>
+<aside class="callout"><p>방문 도우미와 문화유산 도슨트는 결합 가능하지만, 전국 여행·자체 내비게이션까지 확장하면 범위가 과도합니다. 지방 국립박물관 1곳, 유물 30~50점, 60·120분 관람 모드로 제한하고 <code>방문 조건 확인 → 관람 순서 추천 → 현장 유물 해설 → 자유 질문과 출처</code>를 하나의 흐름으로 구현하는 것이 권장됩니다. 범용 LLM과의 차이는 공식 기관 데이터, 시간 제약 검사, 계획과 현장 대화의 연결, 근거 부족 시 답변 보류를 실제로 구현하고 비교평가할 때 확보됩니다.</p></aside></main>
+  </div>
+  <footer>SKN33 3차 LLM 단위 프로젝트 · 2차 회의 후속 검토자료 · 팀 합의 전</footer>
+</body>
+</html>

@@ -155,8 +155,8 @@ project/
 ### 저장소 복제와 가상환경
 
 ```bash
-git clone <REPOSITORY_URL>
-cd <PROJECT_DIRECTORY>
+git clone https://github.com/SpicyAutumn/SKN33-3rd-1Team.git
+cd SKN33-3rd-1Team
 python -m venv .venv
 ```
 

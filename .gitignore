@@ -42,3 +42,6 @@ data/raw/*
 # Processed data may be large or contain original text
 data/processed/*
 !data/processed/.gitkeep
+
+# Handoff archives are copied to the team shared location, never committed.
+data/handoff/

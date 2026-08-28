@@ -394,6 +394,32 @@ python scripts/collect_all_aks.py --all
 python scripts/validate_aks_collection.py
 ```
 
+### 원본 전달·재수집 위치
+
+원본 JSON과 기준 CSV는 저작권·용량 관리상 Git에 넣지 않습니다. 현재 수집 작업공간의 전달 패키지 위치와 팀 공유 드라이브 전달 대상은 다음과 같습니다. 업로드할 때도 **파일명과 `checksums.json`의 SHA-256을 유지**합니다.
+
+- 팀 공유 드라이브 전달 폴더: [Google Drive · AKS 원본 데이터](https://drive.google.com/drive/folders/1suuH0gytA1T2ht0OEyvpvpHH1kM4nkVM)
+- 업로드 대상: `aks_raw_api_first10000_20260828.zip`, `aks_source_csv_20240130.zip`, `checksums.json`
+
+| 용도 | 작업공간 전달 위치 | 내용 |
+| :--- | :--- | :--- |
+| 원본 JSON 전달 패키지 | `data/handoff/aks_raw_api_first10000_20260828.zip` | 수집된 API JSON, 1만 EID 단위 manifest, 무결성 검증 결과 |
+| 재수집용 기준 CSV 패키지 | `data/handoff/aks_source_csv_20240130.zip` | 일반 항목 CSV 원본(`한국민족문화대백과사전_20240130.csv`) |
+| 검증값 | `data/handoff/checksums.json` | 두 압축파일과 전달 manifest의 SHA-256 |
+| 압축 재생성 명령 | `python scripts/package_aks_handoff.py` | 현재 원본·manifest 기준으로 패키지 재생성 |
+
+`data/handoff/`는 Git에서 제외된 전달 패키지 생성 위치다. 위 Google Drive 폴더에 세 파일을 **2026-08-28에 업로드 완료**했으며, 팀원은 동일한 폴더에서 내려받아 `checksums.json`의 SHA-256을 비교한다.
+
+압축을 푼 뒤 실제 corpus로 사용할 행은 반드시 아래 조건을 모두 만족해야 합니다. 이 조건은 감사 표본(`data/raw/api_audit/`)과 API 원문 부재·본문 누락 항목을 제외합니다.
+
+```text
+raw_file_path starts with "data/raw/api/"
+AND has_body = true
+AND status in {"ok", "warning"}
+```
+
+현재 전달 패키지에서 이 조건을 만족하는 항목은 **9,960건**입니다. `manifest_collection_first10000.csv`에는 1만 EID의 성공·경고·오류 상태가 함께 들어 있으므로, 위 조건으로 필터링한 후 정제·청킹을 시작합니다.
+
 단위 테스트는 네트워크와 실제 키 없이 모의 API 응답으로 실행합니다.
 
 ```bash

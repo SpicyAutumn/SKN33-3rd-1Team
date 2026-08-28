@@ -1,16 +1,16 @@
 # 생성 컴포넌트 입출력 계약 및 응답 스키마
 
 > 작성일: 2026-08-28  
-> 상태: 변경 검토 중 — 기존 승인안에 팀원 의견 반영  
+> 상태: PR #3 팀원 리뷰 대응안 반영 — 재검토 예정  
 > 스키마 버전: `0.2.0-draft`  
 > 변경 사유: `candidate_answerable`·`candidate_refusal` 구조를 `candidate_response_type` 중심으로 확장하고 `needs_clarification` 대화 상태를 추가한다.  
 > 전제: 실제 문서 표본 없이 설계한 작업용 초안이며, B·C·E·F와의 연동 검토 후 변경할 수 있다.
 
 ## 1. 문서 목적
 
-이 문서는 C의 검색 결과, D의 생성 컴포넌트, E의 RAG Chain과 안전장치, F의 Streamlit 화면 사이에서 주고받을 데이터 형식을 정의한다.
+이 문서는 B·C가 준비한 검색 데이터, D의 생성 컴포넌트, E의 서비스 RAG Chain과 안전장치, F의 Streamlit 화면 사이에서 주고받을 데이터 형식을 정의한다.
 
-D와 E가 RAG Chain 후보를 각자 구현하더라도 같은 입력과 출력 형태로 변환할 수 있게 하여 비교와 통합에 드는 시간을 줄이는 것이 목적이다.
+D는 고정 검색 문맥을 사용해 Prompt Baseline과 Fine-tuning 후보를 비교하고, E는 선택된 생성 컴포넌트를 서비스 RAG Chain에 연결한다. 두 작업이 같은 입출력 계약을 사용하여 비교와 통합에 드는 시간을 줄이는 것이 목적이다.
 
 ## 2. 0.2.0-draft의 주요 변경
 
@@ -36,37 +36,30 @@ D와 E가 RAG Chain 후보를 각자 구현하더라도 같은 입력과 출력 
 4. 검색 점수는 Vector DB에 따라 의미가 다를 수 있으므로 점수의 크기만으로 좋고 나쁨을 단정하지 않는다.
 5. 실제 표본 전에는 `MOCK-` 접두사가 붙은 값만 사용한다.
 6. 필드 변경 시 `schema_version`을 올리고 변경 이유를 기록한다.
-7. D와 E가 서로 다른 내부 구조를 사용해도 아래 공통 계약으로 변환한 뒤 비교한다.
+7. D의 생성 후보와 E의 서비스 RAG Chain은 아래 공통 계약으로 연결한다.
 8. `needs_clarification`은 거절이 아니라 다음 사용자 입력을 기다리는 대화 상태로 취급한다.
 9. 의미적 응답 상태와 API·파싱·네트워크 오류를 분리한다.
 
 ## 4. 전체 데이터 흐름
 
 ```text
-C: Retriever
-   │
-   └─ list[RetrievedContext]
-              │
-              ▼
-E 또는 D의 실험 Chain: GenerationRequest 구성
-              │
-              ▼
-D: 질문 상태 판정 → Prompt → Model → Output Parser
-              │
-              └─ GenerationResult
-                         │
-             ┌───────────┴───────────┐
-             ▼                       ▼
-    답변·거절·정정             추가 질문 필요
-             │                       │
-             ▼                       ▼
-E: 근거·안전 검증         F: 사용자에게 추가 질문 표시
-             │                       │
-             │              최소 ClarificationContext 저장
-             │                       │
-             └───────────┬───────────┘
-                         ▼
-                  ServiceResponse
+사용자 질문
+    ↓
+E: 안전·서비스 범위 사전 판정
+    ↓
+C: Retriever → list[RetrievedContext]
+    ↓
+E: 근거 충분성 판정·필요 시 재검색
+    ├─ insufficient → LLM 호출 없이 insufficient_evidence
+    └─ sufficient
+           ↓
+E: GenerationRequest 구성
+           ↓
+D: Prompt → Model 후보 → Output Parser
+           ↓
+E: 근거·안전 검증, 최종 response_type·출처 조립
+           ↓
+F: ServiceResponse 표시·최소 ClarificationContext 저장
 ```
 
 ## 5. 검색 문맥 계약: `RetrievedContext`
@@ -79,7 +72,8 @@ C가 반환하고 D·E가 공통으로 사용하는 검색 문서 한 건의 형
 | `document_id` | `str` | O | 원문 문서 식별자 | B·C |
 | `title` | `str` | O | 출처 제목 | B·C |
 | `content` | `str` | O | 생성에 제공할 청크 본문 | C |
-| `source_url` | `str` 또는 `null` | O | 원문 URL, 없으면 `null` | B·C |
+| `source` | `str` 또는 `null` | O | 원문 URL 또는 파일 경로, 없으면 `null` | B·C |
+| `page` | `int` 또는 `null` | O | 페이지 기반 자료의 원본 페이지, 없으면 `null` | B·C |
 | `section` | `str` 또는 `null` | O | 문서 안의 구역명 | B·C |
 | `retrieval_rank` | `int` | O | 검색 결과 순위, 1부터 시작 | C |
 | `retrieval_score` | `float` 또는 `null` | O | 검색기가 제공한 원래 점수 | C |
@@ -102,9 +96,19 @@ C가 반환하고 D·E가 공통으로 사용하는 검색 문서 한 건의 형
 | `grounding_decision` | `str` | O | `unchecked`, `sufficient`, `insufficient` |
 | `clarification_context` | `dict` 또는 `null` | O | 이전 추가 질문과 사용자 응답의 최소 상태 |
 
-`grounding_decision`은 E가 사전에 근거 충분성을 판정한 경우 그 결과를 전달한다. D의 독립 실험 Chain처럼 사전 판정이 없다면 `unchecked`를 사용한다.
+`grounding_decision`은 E가 생성 전에 판단한다. 실제 서비스에서는 `sufficient` 또는 `insufficient`만 허용한다. `unchecked`는 D가 고정 Mock Context로 수행하는 오프라인 생성 실험에서만 사용할 수 있으며, 최종 `ServiceResponse`를 만드는 서비스 경로에서는 사용할 수 없다.
 
-### 6.1. `clarification_context` 형식
+### 6.1. `grounding_decision` 처리 규칙
+
+| 값 | 담당 | 처리 |
+| :--- | :---: | :--- |
+| `insufficient` | E | D의 생성 컴포넌트와 LLM을 호출하지 않고 `insufficient_evidence`로 종료 |
+| `sufficient` | E → D → E | D의 생성 컴포넌트를 호출하고 E가 결과를 최종 검증 |
+| `unchecked` | D 오프라인 실험 | 잠정 `GenerationResult`만 만들 수 있으며 서비스 응답으로 전환 금지 |
+
+E가 `sufficient`로 판정했지만 D가 `insufficient_evidence` 후보를 반환하면 E가 근거를 다시 확인한다. 실제 근거가 부족하면 최종 `insufficient_evidence`로 변경한다. 근거가 충분하면 생성을 한 번 재시도하고, 다시 실패하면 근거 부족이 아닌 `generation_error`로 기록한다.
+
+### 6.2. `clarification_context` 형식
 
 첫 질문에서는 `clarification_context=null`을 사용한다. 시스템이 한 번 추가 질문한 후 사용자가 답하면 다음 최소 상태를 전달한다.
 
@@ -119,7 +123,7 @@ C가 반환하고 D·E가 공통으로 사용하는 검색 문서 한 건의 형
 
 전체 대화 이력을 저장하는 구조가 아니다. 해결되지 않은 질문 한 건을 처리하는 데 필요한 값만 보관한다.
 
-### 6.2. 최초 Mock 요청 예시
+### 6.3. D의 오프라인 Mock 요청 예시
 
 ```json
 {
@@ -246,8 +250,10 @@ E가 검증을 마치고 F에게 전달하는 최종 응답이다. `citations`�
   "chunk_id": "CHUNK-MOCK-001",
   "document_id": "DOC-MOCK-001",
   "title": "가상 문서",
+  "source": null,
+  "page": null,
   "section": "개요",
-  "source_url": null
+  "retrieval_rank": 1
 }
 ```
 
@@ -302,7 +308,9 @@ E가 검증을 마치고 F에게 전달하는 최종 응답이다. `citations`�
 → answered
 ```
 
-실제 Chain에서는 일부 판정이 검색 전과 검색 후에 나뉠 수 있다. 이 순서는 최종 응답 유형이 서로 겹칠 때의 우선순위 기준이다.
+E는 안전·서비스 범위를 검색 전에 먼저 확인하고, 검색 후에는 근거 충분성과 잘못된 전제를 확인한다. D가 반환한 `candidate_response_type`은 잠정 결과이며 E가 검증한 `response_type`만 최종 결과로 사용한다.
+
+서비스 경로에서 `grounding_decision=insufficient`이면 E가 LLM 호출 전에 종료한다. `sufficient`이면 D의 생성 컴포넌트를 호출한다. `unchecked`는 오프라인 실험 전용이므로 서비스 경로에서 발견되면 `invalid_request`로 처리한다.
 
 ## 13. 필수 검증 규칙
 
@@ -311,9 +319,12 @@ E가 검증을 마치고 F에게 전달하는 최종 응답이다. `citations`�
 1. 요청과 결과의 `request_id`, `interaction_id`가 같아야 한다.
 2. `candidate_response_type`과 `response_type`은 승인된 여섯 값 중 하나여야 한다.
 3. `audience_level`은 `easy`, `general`, `advanced` 중 하나여야 한다.
-4. `used_chunk_ids`는 입력의 `retrieved_contexts`에 존재하는 값만 사용할 수 있다.
-5. 출처 제목·URL·구역은 검색 메타데이터에서 복사하고 LLM 출력에서 가져오지 않는다.
-6. 스키마에 없는 필드는 구현 단계에서 기본적으로 거부하고, 필요한 경우 버전을 변경한다.
+4. 입력의 `retrieved_contexts[*].chunk_id`로 허용 ID 집합을 만든다.
+5. `used_chunk_ids`, `premise_correction.source_chunk_ids`, `clarification.options[*].source_chunk_ids`, `related_topic_candidates[*].source_chunk_ids`의 모든 값은 허용 ID 집합의 부분집합이어야 한다.
+6. D의 Parser는 자료형·필수 필드·ID 존재 여부를 1차 검증하고, E는 사용자에게 제공하기 전에 같은 ID 규칙을 다시 검증한다.
+7. 입력에 없는 ID가 하나라도 있으면 출처를 표시하지 않고 `generation_error`로 처리한다.
+8. 출처 제목·URL 또는 경로·페이지·구역은 검색 메타데이터에서 복사하고 LLM 출력에서 가져오지 않는다.
+9. 스키마에 없는 필드는 구현 단계에서 기본적으로 거부하고, 필요한 경우 버전을 변경한다.
 
 ### 응답 유형별 규칙
 
@@ -321,12 +332,12 @@ E가 검증을 마치고 F에게 전달하는 최종 응답이다. `citations`�
 | :--- | :--- |
 | `answered` | `used_chunk_ids` 1개 이상, `clarification=null`, `premise_correction=null` |
 | `insufficient_evidence` | 질문은 명확해야 하며, `clarification=null`, `premise_correction=null` |
-| `needs_clarification` | `clarification.question` 필수, 질문 1개, 선택지 최대 3개 |
+| `needs_clarification` | `clarification.question` 필수, 질문 1개, 선택지 최대 3개, 근거 기반 선택지 ID 검증 |
 | `corrected_premise` | `premise_correction` 필수, 근거 `source_chunk_ids` 1개 이상 |
 | `safety_refusal` | `clarification=null`, `premise_correction=null`, 비밀 값을 메시지에 포함하지 않음 |
 | `out_of_scope` | `clarification=null`, `premise_correction=null` |
 
-`related_topics`는 `answered` 또는 `corrected_premise`일 때만 제공하는 것을 기본안으로 한다.
+`related_topic_candidates`와 최종 `related_topics`는 `answered` 또는 `corrected_premise`일 때만 제공하는 것을 기본안으로 한다. 각 후보가 검색 근거를 사용하면 `source_chunk_ids`를 반드시 포함한다.
 
 ## 14. 시스템 오류와 의미적 응답의 구분
 
@@ -405,14 +416,14 @@ E가 검증을 마치고 F에게 전달하는 최종 응답이다. `citations`�
 
 | 번호 | 논의 항목 | 제안 | 협업 대상 | 확정 필요 시점 |
 | :---: | :--- | :--- | :---: | :--- |
-| S-01 | 검색 문맥 필드 | `chunk_id`, `document_id`, `content`, 출처 메타데이터를 공통 필수값으로 사용 | B·C | 실제 표본 연결 전 |
+| S-01 | 검색 문맥 필드 | `chunk_id`, `document_id`, `content`, `source`, `page`, `section`을 공통 필수 필드로 사용하되 값이 없으면 `null` | B·C | 실제 표본 연결 전 |
 | S-02 | 검색 점수 표현 | 점수와 함께 `score_type`을 전달하고 임계값은 C·E가 결정 | C·E | 검색기 연결 전 |
-| S-03 | 근거 판정 전달 | 사전 판정이 있으면 `sufficient/insufficient`, 없으면 `unchecked` | D·E | RAG 후보 비교 전 |
+| S-03 | 근거 판정 전달 | 서비스에서는 E가 `sufficient/insufficient`를 확정하고 `unchecked`는 D의 오프라인 실험에만 사용 | D·E | 리뷰 대응안 확정 |
 | S-04 | 설명 수준 | 내부 코드는 `easy/general/advanced`, UI 문구는 `쉽게/일반/깊이 있게` | D·F·팀 | UI·Prompt 확정 전 |
 | S-05 | 출처 구성 | D는 `used_chunk_ids`만 반환하고 E가 출처 메타데이터를 연결 | C·D·E | 통합 구현 전 |
 | S-06 | 서비스 응답 필드 | F가 필요한 필드와 표시하지 않을 내부 필드를 구분 | E·F | UI 실제 연결 전 |
 | S-07 | 연관 항목 | MVP 포함 여부와 표시 형태를 팀에서 결정 | A·D·E·F | 생성 코드 구현 전 |
-| S-08 | 오류 책임 | 생성·파싱 오류는 D, Chain·외부 호출 오류는 E가 우선 기록 | D·E | 통합 테스트 전 |
+| S-08 | 오류 책임 | 생성·파싱 오류는 D가 1차 기록하고 E가 서비스 오류로 분류, Chain·외부 호출 오류는 E가 기록 | D·E | 통합 테스트 전 |
 | S-09 | 응답 유형 코드명 | 여섯 개 `response_type` 이름과 의미 확정 | D·E·F·팀 | Prompt·UI 확정 전 |
 | S-10 | 추가 질문 상태 | `interaction_id`와 최소 `ClarificationContext` 저장 위치 결정 | A·D·E·F | 생성 코드 구현 전 |
 | S-11 | 모호함 판정 | 네 가지 판정 조건과 추가 질문 1회 제한 검토 | D·E·팀 | Prompt·평가 확정 전 |
@@ -431,7 +442,10 @@ E가 검증을 마치고 F에게 전달하는 최종 응답이다. `citations`�
 - 전체 대화 이력 대신 최소 `ClarificationContext`만 저장
 - `corrected_premise`의 정정 내용과 근거 연결
 - 의미적 응답과 시스템 오류의 분리
+- `grounding_decision`별 호출·종료 규칙과 D/E 판정 불일치 처리
+- 모든 중첩 `source_chunk_ids`의 허용 ID 부분집합 검증
+- 기존 데이터 문서에 맞춘 `source`·`page`·`section` 메타데이터
+- D의 오프라인 생성 비교와 E의 서비스 RAG Chain 역할 구분
 - 실제 코드 구현 전 S-09~S-12를 팀과 확인하는 원칙
 
-이 변경안이 재승인되기 전에는 3단계 Prompt Baseline을 수정하지 않는다.
-
+이 문서의 `0.2.0-draft`를 현재 작업 기준 규격으로 사용하며, 3단계 Prompt Baseline도 같은 규격으로 동기화한다. 재검토에서 변경 요청이 발생하면 스키마 버전과 변경 내역을 함께 갱신한다.

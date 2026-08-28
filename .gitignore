@@ -27,7 +27,9 @@ Thumbs.db
 vectorstore/
 chroma_db/
 faiss_index/
-outputs/
+outputs/*
+!outputs/aks_raw_validation.json
+!outputs/aks_raw_validation_report.md
 logs/
 
 # Raw/restricted data: 팀이 공개 가능 여부를 확인한 파일만 예외 처리
@@ -37,4 +39,3 @@ data/raw/*
 # Processed data may be large or contain original text
 data/processed/*
 !data/processed/.gitkeep
-

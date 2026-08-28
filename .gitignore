@@ -27,12 +27,7 @@ Thumbs.db
 vectorstore/
 chroma_db/
 faiss_index/
-outputs/*
-!outputs/csv_api_comparison.csv
-!outputs/csv_api_audit.json
-!outputs/csv_api_audit_report.md
-!outputs/api_collection_validation.json
-!outputs/api_collection_validation.md
+outputs/
 logs/
 
 # Raw/restricted data: 팀이 공개 가능 여부를 확인한 파일만 예외 처리
@@ -43,5 +38,3 @@ data/raw/*
 data/processed/*
 !data/processed/.gitkeep
 
-# Handoff archives are copied to the team shared location, never committed.
-data/handoff/

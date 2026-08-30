@@ -18,7 +18,12 @@ def main() -> int:
     parser.add_argument("--input", type=Path, required=True, help="Path to the delivered AKS JSONL file.")
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "data" / "processed" / "aks_chunks.jsonl")
     parser.add_argument("--report", type=Path, default=PROJECT_ROOT / "outputs" / "aks_chunking_report.json")
-    parser.add_argument("--limit", type=int, default=10_000, help="Maximum successful source documents to process.")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Optional maximum successful source documents to process. Omit to process all documents.",
+    )
     parser.add_argument("--max-chars", type=int, default=1_500)
     parser.add_argument("--overlap-chars", type=int, default=200)
     args = parser.parse_args()

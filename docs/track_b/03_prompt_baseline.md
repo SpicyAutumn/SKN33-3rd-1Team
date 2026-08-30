@@ -3,7 +3,7 @@
 > 작성일: 2026-08-28  
 > 상태: PR #3 팀원 리뷰 대응안 반영 — 재검토 예정  
 > Prompt 버전: `prompt-baseline-v0`  
-> 응답 스키마: `0.2.0-draft`  
+> 응답 스키마: `0.3.0-draft`<br>
 > 전제: 실제 문서 표본 없이 작성한 Zero-shot 기준선이며 외부 LLM 호출은 수행하지 않았다.
 
 ## 1. 문서 목적
@@ -121,7 +121,7 @@ grounding_decision: {grounding_decision}
 - related_topic_candidates는 검색 문맥에서 직접 확인되는 항목만 작성하고, 없으면 빈 배열을 사용한다.
 ```
 
-`retrieved_contexts_json`은 Python 객체의 임의 문자열 표현이 아니라 JSON 직렬화 결과를 사용한다. 문맥이 길어질 경우 어떤 청크를 제외할지는 Prompt가 아니라 C·E의 Context 구성 단계에서 결정한다.
+`retrieved_contexts_json`은 Python 객체의 임의 문자열 표현이 아니라 JSON 직렬화 결과를 사용한다. 문맥이 길어질 경우 어떤 청크를 제외할지는 Prompt가 아니라 전처리·검색 데이터 담당과 RAG Chain·통합 평가 담당의 Context 구성 단계에서 결정한다.
 
 ## 7. LLM 출력과 실행 코드의 조립
 
@@ -134,7 +134,7 @@ LLM은 답변 내용과 근거 참조에 관한 필드만 생성한다.
 - `premise_correction`
 - `related_topic_candidates`
 
-D의 실행 코드는 다음 값을 입력과 실제 실행 결과에서 가져와 `GenerationResult`에 추가한다.
+생성·Prompt·Fine-tuning 담당의 실행 코드는 다음 값을 입력과 실제 실행 결과에서 가져와 `GenerationResult`에 추가한다.
 
 - `schema_version`
 - `request_id`
@@ -146,9 +146,9 @@ D의 실행 코드는 다음 값을 입력과 실제 실행 결과에서 가져�
 
 이 구분을 사용하면 모델이 이미 알고 있는 요청 ID를 잘못 복사하거나 실행하지 않은 모델·비용 정보를 만들어 내는 문제를 줄일 수 있다.
 
-## 8. `0.2.0-draft` LLM 출력 예시
+## 8. `0.3.0-draft` LLM 출력 예시
 
-실제 역사·문화 사실을 사용하지 않은 형식 검증용 예시다. 아래 JSON에는 LLM이 생성하는 필드만 포함하며, 요청 ID와 실행 정보는 D의 실행 코드가 결합한다.
+실제 역사·문화 사실을 사용하지 않은 형식 검증용 예시다. 아래 JSON에는 LLM이 생성하는 필드만 포함하며, 요청 ID와 실행 정보는 생성·Prompt·Fine-tuning 담당의 실행 코드가 결합한다.
 
 ### 8.1. 정상 답변
 
@@ -233,7 +233,7 @@ Fine-tuning 전후 비교에서는 Prompt까지 동시에 바꾸지 않는다.
 | 항목 | 기록값 |
 | :--- | :--- |
 | Prompt 버전 | `prompt-baseline-v0` |
-| 응답 스키마 | `0.2.0-draft` |
+| 응답 스키마 | `0.3.0-draft` |
 | 모델 ID | 실제 실행 전 결정 |
 | temperature | 실제 실행 전 결정 |
 | 문서·청크 | 동일한 데이터 스냅샷 |
@@ -247,26 +247,26 @@ RAG 검색까지 함께 비교하는 실험과 생성 모델만 비교하는 실
 
 | 실패 유형 | 확인 내용 | 우선 개선 담당 |
 | :--- | :--- | :---: |
-| JSON 형식 오류 | 필드 누락, 잘못된 자료형, JSON 밖 문장 | D |
-| 수준 부적합 | 쉬운 설명에 전문용어가 많거나 심화 설명이 지나치게 단순 | D |
-| 근거 밖 생성 | 문맥에 없는 사실 추가 | D·E |
-| 잘못된 청크 참조 | 일반 필드 또는 중첩 `source_chunk_ids`에 입력에 없는 ID 생성 | D·E |
-| 근거 판정 불일치 | E는 충분하다고 판정했지만 D가 근거 부족 후보를 반환 | D·E |
-| 잘못된 답변 보류 | 충분한 근거가 있는데 거절하거나 근거 없이 답변 | D·E |
-| 문맥 속 명령 수행 | 검색 문서의 Prompt Injection을 따름 | D·E |
-| 검색 실패 | 필요한 근거가 Retriever 결과에 없음 | C |
+| JSON 형식 오류 | 필드 누락, 잘못된 자료형, JSON 밖 문장 | 생성·Prompt·Fine-tuning 담당 |
+| 수준 부적합 | 쉬운 설명에 전문용어가 많거나 심화 설명이 지나치게 단순 | 생성·Prompt·Fine-tuning 담당 |
+| 근거 밖 생성 | 문맥에 없는 사실 추가 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 |
+| 잘못된 청크 참조 | 일반 필드 또는 중첩 `source_chunk_ids`에 입력에 없는 ID 생성 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 |
+| 근거 판정 불일치 | RAG 단계에서는 충분하다고 판정했지만 생성 단계에서 근거 부족 후보를 반환 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 |
+| 잘못된 답변 보류 | 충분한 근거가 있는데 거절하거나 근거 없이 답변 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 |
+| 문맥 속 명령 수행 | 검색 문서의 Prompt Injection을 따름 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 |
+| 검색 실패 | 필요한 근거가 Retriever 결과에 없음 | 전처리·검색 데이터 담당 |
 
 ## 12. 팀원 협업 및 논의 필요 항목
 
 | 번호 | 논의 항목 | 제안 | 협업 대상 | 확정 필요 시점 |
 | :---: | :--- | :--- | :---: | :--- |
-| P-01 | 근거 판정 우선순위 | E가 `insufficient`이면 LLM 호출 전 종료하고, `unchecked`는 D의 오프라인 실험에만 허용 | D·E | 리뷰 대응안 확정 |
-| P-02 | 문맥 직렬화·길이 | JSON으로 전달하고 선택·절단은 C·E가 담당 | C·D·E | 실제 Retriever 연결 전 |
-| P-03 | 설명 수준 기준 | 현재의 세 수준 기준을 UI 문구와 평가 기준에 공통 적용 | D·E·F·팀 | UI·평가 확정 전 |
-| P-04 | 답변 보류 문구 | 기본 문구와 UI 표시 방식을 E·F가 검토 | D·E·F | 통합 구현 전 |
-| P-05 | 관련 항목 생성 | MVP에서 유지할지, 빈 배열만 허용할지 결정 | A·D·E·F | 생성 코드 구현 전 |
-| P-06 | Prompt Injection 규칙 | System Prompt의 기본 방어 규칙과 추가 차단 로직의 경계 | D·E | 안전 테스트 전 |
-| P-07 | Baseline 모델 설정 | 모델 ID·temperature·토큰 제한·비용 상한 | A·D·E·팀 | 실제 API 실행 전 |
+| P-01 | 근거 판정 우선순위 | RAG Chain이 `insufficient`이면 LLM 호출 전 종료하고, `unchecked`는 오프라인 생성 실험에만 허용 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 | 리뷰 대응안 확정 |
+| P-02 | 문맥 직렬화·길이 | JSON으로 전달하고 선택·절단은 검색 데이터와 RAG 담당이 처리 | 전처리·검색 데이터, 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 | 실제 Retriever 연결 전 |
+| P-03 | 설명 수준 기준 | 현재의 세 수준 기준을 UI 문구와 평가 기준에 공통 적용 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가, UI·배포 담당과 팀 | UI·평가 확정 전 |
+| P-04 | 답변 보류 문구 | 기본 문구와 UI 표시 방식을 RAG Chain·통합 평가 및 UI·배포 담당이 검토 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가, UI·배포 담당 | 통합 구현 전 |
+| P-05 | 관련 항목 생성 | MVP에서 유지할지, 빈 배열만 허용할지 결정 | 프로젝트 관리·팀 의사결정, 생성·Prompt·Fine-tuning, RAG Chain·통합 평가, UI·배포 담당 | 생성 코드 구현 전 |
+| P-06 | Prompt Injection 규칙 | System Prompt의 기본 방어 규칙과 추가 차단 로직의 경계 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 | 안전 테스트 전 |
+| P-07 | Baseline 모델 설정 | 모델 ID·temperature·토큰 제한·비용 상한 | 프로젝트 관리·팀 의사결정, 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당과 팀 | 실제 API 실행 전 |
 
 팀 협의 전에는 `prompt-baseline-v0`을 설계·Mock 검증용으로 사용할 수 있다. 실제 API 호출과 성능 측정 전에는 P-01~P-07 중 해당되는 항목을 확인한다.
 
@@ -276,8 +276,8 @@ RAG 검색까지 함께 비교하는 실험과 생성 모델만 비교하는 실
 - System과 Request Prompt를 분리하는 구조
 - 검색 문맥 안의 명령을 자료로만 취급하는 규칙
 - 세 설명 수준의 표현 기준
-- D의 잠정 답변·청크 ID 반환과 E의 최종 검증 경계
-- `0.2.0-draft`의 여섯 가지 `candidate_response_type`과 출력 필드
+- 생성 단계의 잠정 답변·청크 ID 반환과 RAG Chain의 최종 검증 경계
+- `0.3.0-draft`의 여섯 가지 `candidate_response_type`과 출력 필드
 - 모든 중첩 `source_chunk_ids`를 입력 청크와 대조하는 규칙
 - LLM은 답변 필드만 생성하고 실행 코드가 요청·모델·지연시간 정보를 결합하는 구조
 - JSON 객체 하나만 반환하는 출력 규칙

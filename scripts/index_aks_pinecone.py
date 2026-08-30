@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -25,6 +26,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Embed and upsert AKS chunks into Pinecone.")
     parser.add_argument("--input", type=Path, default=PROJECT_ROOT / "data" / "processed" / "aks_chunks.jsonl")
     parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument(
+        "--namespace",
+        help="Pinecone namespace. Overrides PINECONE_NAMESPACE; use a new name for a changed chunking scheme.",
+    )
+    parser.add_argument(
+        "--allow-default-namespace",
+        action="store_true",
+        help="Allow v2 chunks in Pinecone's default namespace after deliberately clearing or migrating it.",
+    )
     parser.add_argument("--limit", type=int, help="Maximum chunks to index; use 100 for the first paid test.")
     parser.add_argument(
         "--start-offset",
@@ -66,6 +76,13 @@ def main() -> int:
         )
         return 0
     load_project_env(PROJECT_ROOT / ".env")
+    namespace = args.namespace if args.namespace is not None else os.getenv("PINECONE_NAMESPACE", "")
+    is_v2_corpus = any(chunk.metadata.get("chunk_id_schema_version") == "v2" for chunk in chunks)
+    if is_v2_corpus and not namespace and not args.allow_default_namespace:
+        parser.error(
+            "v2 chunk IDs require a new --namespace (for example aks-chunk-v2). "
+            "Use --allow-default-namespace only after deliberately clearing or migrating the default namespace."
+        )
     args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
 
     def save_checkpoint(processed: int) -> None:
@@ -85,13 +102,14 @@ def main() -> int:
             print(f"로컬 진행 저장: {absolute_offset:,}/{total_chunks:,}", flush=True)
 
     # A known offset is safer than fetching 1,536-dimensional vectors just to check their metadata.
-    result = PineconeRetriever().upsert(
+    result = PineconeRetriever(namespace=namespace).upsert(
         chunks,
         batch_size=args.batch_size,
         resume=not args.no_resume and start_offset == 0,
         progress_callback=save_checkpoint,
     )
     result["next_offset"] = start_offset + result["total"]
+    result["namespace"] = namespace
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

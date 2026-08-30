@@ -36,6 +36,19 @@ class RagIndexingTests(unittest.TestCase):
         self.assertEqual(first[0].source_url, PAYLOAD["url"])
         self.assertTrue(all(chunk.section in {"definition", "body"} for chunk in first))
         self.assertIn("aliases", first[0].metadata)
+        self.assertEqual(first[0].metadata["chunking_version"], "v2")
+        self.assertIn(first[0].metadata["chunking_fingerprint"], first[0].chunk_id)
+
+    def test_chunk_ids_change_when_chunking_settings_change(self) -> None:
+        baseline = build_chunks([PAYLOAD], ChunkingConfig(max_chars=120, overlap_chars=10, version="v2"))
+        changed_size = build_chunks([PAYLOAD], ChunkingConfig(max_chars=130, overlap_chars=10, version="v2"))
+        changed_overlap = build_chunks([PAYLOAD], ChunkingConfig(max_chars=120, overlap_chars=0, version="v2"))
+        changed_version = build_chunks([PAYLOAD], ChunkingConfig(max_chars=120, overlap_chars=10, version="v3"))
+
+        baseline_ids = {chunk.chunk_id for chunk in baseline}
+        self.assertTrue(baseline_ids.isdisjoint({chunk.chunk_id for chunk in changed_size}))
+        self.assertTrue(baseline_ids.isdisjoint({chunk.chunk_id for chunk in changed_overlap}))
+        self.assertTrue(baseline_ids.isdisjoint({chunk.chunk_id for chunk in changed_version}))
 
     def test_load_and_write_jsonl(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

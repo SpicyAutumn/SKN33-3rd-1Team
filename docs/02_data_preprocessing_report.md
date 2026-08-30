@@ -115,6 +115,7 @@ flowchart LR
 | `chunk_id` | string | 청크 식별자 | `aks:E0002452:…:body:0001` | upsert·출처 연결 |
 | `section` | string/null | `definition` 또는 `body` | `body` | 근거 구역 표시 |
 | `metadata.document_fingerprint` | string | 정제 원문 지문 | SHA-256 앞 12자리 | 재실행·갱신 판별 |
+| `metadata.chunking_fingerprint` | string | 청킹 설정 지문 | SHA-256 앞 12자리 | 설정 변경 시 ID 충돌 방지 |
 
 ## 7. 인덱싱 설정
 
@@ -122,8 +123,9 @@ flowchart LR
 - 벡터 차원: 인덱스 생성 시 선택한 embedding 모델의 차원과 일치해야 함
 - Vector DB / Index 이름: Pinecone, `PINECONE_INDEX_NAME`
 - Distance metric: Pinecone cosine similarity를 MVP 기본값으로 권장
-- ID 생성 규칙: `aks:{eid}:{document_fingerprint}:{section}:{ordinal}`
-- Insert / Upsert 기준: 같은 `chunk_id`를 upsert하므로 동일 원문·설정 재실행은 중복이 생기지 않는다.
+- ID 생성 규칙: `aks:{eid}:{document_fingerprint}:{chunking_fingerprint}:{section}:{ordinal}`
+- Insert / Upsert 기준: 같은 원문·같은 청킹 설정 재실행만 같은 `chunk_id`를 사용한다. `max_chars`, `overlap_chars`, 최소 길이, 본문 포함 여부 또는 `chunking_version`이 달라지면 `chunking_fingerprint`과 ID도 달라진다.
+- Namespace 마이그레이션: 이전 ID 체계(v1) 벡터가 있는 기본 namespace에는 새 ID 체계(v2) 청크를 섞어 적재하지 않는다. 새 namespace에서 전체 재적재·검색 검증 뒤 서비스 namespace를 전환하며, 기존 namespace 삭제는 팀 합의 후 수행한다.
 - 문서 삭제·갱신 방법: 원문 지문이 달라진 EID의 이전 chunk ID를 삭제한 뒤 새 chunk ID를 upsert한다. 삭제 실행 전 EID별 기존 ID 목록을 반드시 확인한다.
 
 ## 8. 전처리 결과와 검증
@@ -137,6 +139,7 @@ flowchart LR
 | 청크 재현성 | 동일 입력·설정에서 동일 ID | 단위 테스트 통과 | PASS |
 | 청크 수 | 기록 | 179,028 | PASS |
 | 벡터 검색 | 예상 출처가 top-k에 포함 | `길쌈노래에 대해 설명해줘`에서 같은 원문 EID의 definition·body 청크가 top-3에 포함 | PASS |
+| 검색 평가 | 사람 검수 정답 문서가 top-3에 포함 | 20개 중 18개(Recall@3=0.90), MRR=0.833 | PASS |
 
 전처리 전후 예시를 개인정보나 제한 정보가 없는 범위에서 2~3건 제시합니다.
 
@@ -152,6 +155,9 @@ python scripts/index_aks_pinecone.py --dry-run
 # .env 설정 후 100개 청크로 적재·검색을 먼저 검증한다.
 python scripts/index_aks_pinecone.py --limit 100
 python scripts/search_aks.py "1928년 대구에서 조직된 비밀결사는 무엇이야?" --top-k 3
+
+# 사람 검수 질문 세트 20건으로 정답 문서가 top-3에 있는지 평가한다.
+python scripts/evaluate_aks_retrieval.py --top-k 3
 
 # 결과가 정상이면 전체 청크를 적재한다.
 python scripts/index_aks_pinecone.py

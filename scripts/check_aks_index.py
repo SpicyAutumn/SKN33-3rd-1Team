@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -19,9 +20,14 @@ from rag_indexing.pinecone_store import _require_env  # noqa: E402
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check the number of AKS vectors stored in Pinecone.")
     parser.add_argument("--expected", type=int, default=179_028, help="Expected vector count after a complete upload.")
-    parser.add_argument("--namespace", default="", help="Namespace to verify; empty string means Pinecone default namespace.")
+    parser.add_argument(
+        "--namespace",
+        default=None,
+        help="Namespace to verify. Omit to use PINECONE_NAMESPACE; an empty string means Pinecone default namespace.",
+    )
     args = parser.parse_args()
     load_project_env(PROJECT_ROOT / ".env")
+    namespace = args.namespace if args.namespace is not None else os.getenv("PINECONE_NAMESPACE", "")
 
     try:
         from pinecone import Pinecone
@@ -32,13 +38,13 @@ def main() -> int:
     index = Pinecone(api_key=_require_env("PINECONE_API_KEY")).Index(index_name)
     stats = index.describe_index_stats()
     namespaces = getattr(stats, "namespaces", None) or {}
-    namespace_stats = namespaces.get(args.namespace)
+    namespace_stats = namespaces.get(namespace)
     total = int(getattr(namespace_stats, "vector_count", 0))
     print(
         json.dumps(
             {
                 "index_name": index_name,
-                "namespace": args.namespace,
+                "namespace": namespace,
                 "expected_vector_count": args.expected,
                 "actual_vector_count": total,
                 "status": "MATCH" if total == args.expected else "CHECK_REQUIRED",

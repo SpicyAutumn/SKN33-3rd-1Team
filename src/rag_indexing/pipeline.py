@@ -14,6 +14,7 @@ LICENSE_NOTE = (
     "한국학중앙연구원이 저작재산권 전부를 보유한 항목 원고 범위에서 자유이용 가능; "
     "출처 표기 필수. 미디어는 별도 권리 확인 필요."
 )
+CHUNK_ID_SCHEMA_VERSION = "v2"
 _EID_RE = re.compile(r"^E\d{7}$", re.IGNORECASE)
 _LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 _HEADING_RE = re.compile(r"^#{1,6}\s+")
@@ -28,7 +29,7 @@ class ChunkingConfig:
     overlap_chars: int = 200
     min_content_chars: int = 20
     require_body: bool = True
-    version: str = "v1"
+    version: str = "v2"
 
     def __post_init__(self) -> None:
         if self.max_chars < 100:
@@ -179,7 +180,24 @@ def _document_fingerprint(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
 
 
-def _metadata(payload: dict[str, Any], fingerprint: str, config: ChunkingConfig) -> dict[str, Any]:
+def _chunking_fingerprint(document_fingerprint: str, config: ChunkingConfig) -> str:
+    """Fingerprint every setting that can change chunk boundaries or membership."""
+    settings = {
+        "chunk_id_schema_version": CHUNK_ID_SCHEMA_VERSION,
+        "document_fingerprint": document_fingerprint,
+        "max_chars": config.max_chars,
+        "overlap_chars": config.overlap_chars,
+        "min_content_chars": config.min_content_chars,
+        "require_body": config.require_body,
+        "chunking_version": config.version,
+    }
+    canonical = json.dumps(settings, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+
+
+def _metadata(
+    payload: dict[str, Any], document_fingerprint: str, chunking_fingerprint: str, config: ChunkingConfig
+) -> dict[str, Any]:
     return {
         "eid": payload["eid"],
         "field": _optional_text(payload.get("field")),
@@ -190,8 +208,12 @@ def _metadata(payload: dict[str, Any], fingerprint: str, config: ChunkingConfig)
         "aliases": _aliases(payload.get("articleAliases")),
         "last_modified_at": _optional_text(payload.get("lastModifiedTime")),
         "license": LICENSE_NOTE,
-        "document_fingerprint": fingerprint,
+        "document_fingerprint": document_fingerprint,
+        "chunking_fingerprint": chunking_fingerprint,
+        "chunk_id_schema_version": CHUNK_ID_SCHEMA_VERSION,
         "chunking_version": config.version,
+        "chunking_max_chars": config.max_chars,
+        "chunking_overlap_chars": config.overlap_chars,
     }
 
 
@@ -208,13 +230,14 @@ def build_chunks(payloads: Iterable[dict[str, Any]], config: ChunkingConfig | No
         body = normalize_text(payload.get("body"))
         if config.require_body and not body:
             continue
-        fingerprint = _document_fingerprint({**payload, "eid": eid})
-        metadata = _metadata({**payload, "eid": eid}, fingerprint, config)
+        document_fingerprint = _document_fingerprint({**payload, "eid": eid})
+        chunking_fingerprint = _chunking_fingerprint(document_fingerprint, config)
+        metadata = _metadata({**payload, "eid": eid}, document_fingerprint, chunking_fingerprint, config)
         for section, content in (("definition", normalize_text(payload.get("definition"))), ("body", body)):
             if len(content) < config.min_content_chars:
                 continue
             for ordinal, piece in enumerate(split_content(content, config), start=1):
-                chunk_id = f"aks:{eid}:{fingerprint}:{section}:{ordinal:04d}"
+                chunk_id = f"aks:{eid}:{document_fingerprint}:{chunking_fingerprint}:{section}:{ordinal:04d}"
                 chunks.append(
                     Chunk(
                         chunk_id=chunk_id,

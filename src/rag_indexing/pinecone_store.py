@@ -42,7 +42,7 @@ def _flat_metadata(chunk: Chunk) -> dict[str, Any]:
         "document_id": chunk.document_id,
         "title": chunk.title,
         "content": chunk.content,
-        "source_url": chunk.source_url or "",
+        "source": chunk.source_url or "",
         "section": chunk.section or "",
         "embedding_input_version": EMBEDDING_INPUT_VERSION,
         **chunk.metadata,
@@ -53,9 +53,12 @@ def _flat_metadata(chunk: Chunk) -> dict[str, Any]:
 class PineconeRetriever:
     """Small adapter that returns the team's RetrievedContext contract."""
 
-    def __init__(self, *, index_name: str | None = None, embedding_model: str | None = None) -> None:
+    def __init__(
+        self, *, index_name: str | None = None, embedding_model: str | None = None, namespace: str | None = None
+    ) -> None:
         self.index_name = index_name or _require_env("PINECONE_INDEX_NAME")
         self.embedding_model = embedding_model or os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+        self.namespace = namespace if namespace is not None else os.getenv("PINECONE_NAMESPACE", "")
         try:
             from openai import OpenAI
             from pinecone import Pinecone
@@ -82,9 +85,16 @@ class PineconeRetriever:
                 time.sleep(wait_seconds)
         raise RuntimeError("Unreachable retry state")
 
-    def _current_embedding_ids(self, chunk_ids: list[str]) -> set[str]:
-        """Return only IDs already stored with the current embedding input format."""
-        response = self._index.fetch(ids=chunk_ids)
+    def _current_embedding_ids(self, chunks: list[Chunk]) -> set[str]:
+        """Return IDs only when both embedding and chunking formats match the current chunk."""
+        expected_by_id = {
+            chunk.chunk_id: (
+                chunk.metadata.get("chunking_version"),
+                chunk.metadata.get("chunking_fingerprint"),
+            )
+            for chunk in chunks
+        }
+        response = self._index.fetch(ids=list(expected_by_id), namespace=self.namespace)
         vectors = getattr(response, "vectors", None)
         if vectors is None and isinstance(response, dict):
             vectors = response.get("vectors", {})
@@ -95,7 +105,14 @@ class PineconeRetriever:
             metadata = getattr(vector, "metadata", None)
             if metadata is None and isinstance(vector, dict):
                 metadata = vector.get("metadata", {})
-            if isinstance(metadata, dict) and metadata.get("embedding_input_version") == EMBEDDING_INPUT_VERSION:
+            expected_chunking = expected_by_id.get(str(chunk_id))
+            if (
+                isinstance(metadata, dict)
+                and expected_chunking is not None
+                and metadata.get("embedding_input_version") == EMBEDDING_INPUT_VERSION
+                and metadata.get("chunking_version") == expected_chunking[0]
+                and metadata.get("chunking_fingerprint") == expected_chunking[1]
+            ):
                 ready.add(str(chunk_id))
         return ready
 
@@ -113,7 +130,7 @@ class PineconeRetriever:
         for start in range(0, len(batch), batch_size):
             current = batch[start : start + batch_size]
             if resume:
-                already_current = self._current_embedding_ids([chunk.chunk_id for chunk in current])
+                already_current = self._current_embedding_ids(current)
                 skipped += len(already_current)
                 current = [chunk for chunk in current if chunk.chunk_id not in already_current]
             if not current:
@@ -125,7 +142,8 @@ class PineconeRetriever:
                 vectors=[
                     {"id": chunk.chunk_id, "values": vector, "metadata": _flat_metadata(chunk)}
                     for chunk, vector in zip(current, vectors, strict=True)
-                ]
+                ],
+                namespace=self.namespace,
             )
             uploaded += len(current)
             if progress_callback:
@@ -140,7 +158,7 @@ class PineconeRetriever:
 
     def search(self, question: str, *, top_k: int = 5) -> list[dict[str, Any]]:
         vector = self._embed([question])[0]
-        response = self._index.query(vector=vector, top_k=top_k, include_metadata=True)
+        response = self._index.query(vector=vector, top_k=top_k, include_metadata=True, namespace=self.namespace)
         matches = getattr(response, "matches", None)
         if matches is None and isinstance(response, dict):
             matches = response.get("matches", [])
@@ -156,13 +174,18 @@ class PineconeRetriever:
             chunk_id = getattr(match, "id", None)
             if chunk_id is None and isinstance(match, dict):
                 chunk_id = match.get("id")
+            # The current Track B contract calls this field `source`. Existing
+            # vectors used `source_url`, so accept both while returning one
+            # stable, strict-schema-friendly shape to generation code.
+            source = metadata.pop("source", None) or metadata.pop("source_url", None) or None
             contexts.append(
                 {
                     "chunk_id": str(chunk_id),
                     "document_id": str(metadata.pop("document_id", "")),
                     "title": str(metadata.pop("title", "")),
                     "content": str(metadata.pop("content", "")),
-                    "source_url": metadata.pop("source_url", None) or None,
+                    "source": source,
+                    "page": metadata.pop("page", None),
                     "section": metadata.pop("section", None) or None,
                     "retrieval_rank": rank,
                     "retrieval_score": float(score) if score is not None else None,

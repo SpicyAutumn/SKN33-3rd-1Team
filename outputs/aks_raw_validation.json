@@ -1,0 +1,101 @@
+{
+  "source": "AKS OpenAPI GET /api/articles/{eid}",
+  "raw_directory": "data/raw/api",
+  "manifest": "data/manifest.csv",
+  "generated_at": "2026-08-29T03:50:58+09:00",
+  "stats": {
+    "files_scanned": 75835,
+    "ok": 75820,
+    "warning": 15,
+    "error": 0
+  },
+  "unique_eids": 75835,
+  "duplicate_eids": [],
+  "temporary_files": [],
+  "problems": [
+    {
+      "eid": "E0007445",
+      "file": "data/raw/api/E0007445.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0007458",
+      "file": "data/raw/api/E0007458.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0018291",
+      "file": "data/raw/api/E0018291.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0018307",
+      "file": "data/raw/api/E0018307.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0023164",
+      "file": "data/raw/api/E0023164.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0023447",
+      "file": "data/raw/api/E0023447.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0023651",
+      "file": "data/raw/api/E0023651.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0023865",
+      "file": "data/raw/api/E0023865.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0023935",
+      "file": "data/raw/api/E0023935.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0023947",
+      "file": "data/raw/api/E0023947.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0023997",
+      "file": "data/raw/api/E0023997.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0024041",
+      "file": "data/raw/api/E0024041.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0024099",
+      "file": "data/raw/api/E0024099.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0024306",
+      "file": "data/raw/api/E0024306.json",
+      "error": "body_missing"
+    },
+    {
+      "eid": "E0065732",
+      "file": "data/raw/api/E0065732.json",
+      "error": "body_missing"
+    }
+  ],
+  "jsonl_validation": {
+    "path": "data/raw/aks_full_content.jsonl",
+    "exists": true,
+    "lines": 75835,
+    "invalid_lines": 0,
+    "duplicate_eids": 0,
+    "unknown_eids": 0,
+    "missing_eids": 0
+  }
+}

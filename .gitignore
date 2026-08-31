@@ -28,6 +28,8 @@ vectorstore/
 chroma_db/
 faiss_index/
 outputs/*
+!outputs/aks_raw_validation.json
+!outputs/aks_raw_validation_report.md
 !outputs/csv_api_comparison.csv
 !outputs/csv_api_audit.json
 !outputs/csv_api_audit_report.md

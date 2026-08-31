@@ -81,6 +81,8 @@ def render() -> None:
 def _render_flow(result, response, contexts, used_ids, scores, passed, dropped, documents) -> None:
     question = escape(result.get("question", ""))
     level = retrieval.AUDIENCE_LABELS.get(response.get("audience_level", ""), "일반 설명")
+    graded = retrieval.threshold_applies(contexts)
+    score_name = retrieval.score_label(contexts)
     score_range = f"{max(scores):.3f} ~ {min(scores):.3f}" if scores else "점수 없음"
 
     stages = [
@@ -94,13 +96,22 @@ def _render_flow(result, response, contexts, used_ids, scores, passed, dropped, 
             2,
             "‘공식 자료를 검색하고 있습니다…’",
             f"백과사전을 잘라 둔 조각들과 하나씩 비교해 <b>가까운 순서로 {len(contexts)}개</b>를 고릅니다."
-            f"<br><span class='process-note'>유사도 {score_range}</span>",
+            f"<br><span class='process-note'>{score_name} {score_range}</span>",
         ),
         _stage(
             3,
             "<span class='process-note'>화면에는 보이지 않는 단계입니다.</span>",
-            f"기준선 <b>{retrieval.EVIDENCE_MIN_SCORE:.2f}</b> 미만은 근거로 쓰지 않습니다."
-            f"<br><span class='process-note'>통과 {len(passed)}건 · 탈락 {dropped}건 · 통과한 조각이 나온 문서 {len(documents)}개</span>",
+            (
+                f"기준선 <b>{retrieval.EVIDENCE_MIN_SCORE:.2f}</b> 미만은 근거로 쓰지 않습니다."
+                f"<br><span class='process-note'>통과 {len(passed)}건 · 탈락 {dropped}건 · "
+                f"통과한 조각이 나온 문서 {len(documents)}개</span>"
+            )
+            if graded
+            else (
+                "점수 척도가 코사인 유사도가 아니어서 <b>기준선을 적용하지 않았습니다</b>."
+                f"<br><span class='process-note'>{len(passed)}건 모두 근거 후보 · "
+                f"이 조각들이 나온 문서 {len(documents)}개</span>"
+            ),
         ),
     ]
 

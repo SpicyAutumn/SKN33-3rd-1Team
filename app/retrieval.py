@@ -9,7 +9,12 @@ from __future__ import annotations
 from typing import Any
 
 import rag_client
-from rag_client import is_live, meets_threshold, missing_env  # noqa: F401 - 화면에서 그대로 사용한다
+from rag_client import (  # noqa: F401 - 화면에서 그대로 사용한다
+    is_live,
+    is_threshold_comparable,
+    meets_threshold,
+    missing_env,
+)
 
 REQUIRED_ENV = rag_client.REQUIRED_ENV
 SOURCE_NAME = "한국민족문화대백과사전"
@@ -22,6 +27,20 @@ DEFAULT_AUDIENCE_LEVEL = "general"
 # [제거 예정] 임시 근거 판정기가 쓰는 기준선. 화면에서 통과·탈락을 설명하는 데만 쓴다.
 # 실제 EvidenceChecker가 붙으면 이 값과 관련 표시를 함께 걷어낸다.
 EVIDENCE_MIN_SCORE = rag_client.TEMP_EVIDENCE_MIN_SCORE
+
+
+def threshold_applies(contexts: list[dict[str, Any]]) -> bool:
+    """이번 검색 결과에 기준선을 적용했는지.
+
+    검색기가 바뀌어 점수 척도가 달라지면 기준선은 뜻을 잃는다.
+    그때 화면에 `기준선 0.40`을 그대로 띄우면 틀린 설명이 되므로 여기서 걸러낸다.
+    """
+    return any(is_threshold_comparable(c) for c in contexts)
+
+
+def score_label(contexts: list[dict[str, Any]]) -> str:
+    """점수 종류에 맞는 화면 표기. 하이브리드 검색은 유사도가 아니다."""
+    return "유사도" if threshold_applies(contexts) else "관련도"
 
 
 def shift_level(level: str, step: int) -> str:

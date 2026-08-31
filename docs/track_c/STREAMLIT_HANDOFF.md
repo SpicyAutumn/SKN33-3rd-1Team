@@ -137,14 +137,45 @@ last_result = {
 
 ```python
 def meets_threshold(context, min_score=TEMP_EVIDENCE_MIN_SCORE) -> bool:
+    if not is_threshold_comparable(context):
+        return True
     score = _score(context)
     return score is None or score >= min_score
 ```
 
 - 점수 없음(`None`)은 판단 불가로 보고 **통과**시킨다. 점수를 주지 않는 검색기도 있다.
 - `0.0`은 실제 점수다. `or` 연산으로 처리하면 falsy로 걸려 통과해 버린다. 반드시 `is None`으로 구분한다.
+- **점수 척도가 다르면 아예 비교하지 않는다.** 아래 항목을 보라.
 
 이 함수를 쓰는 곳: `ScoreEvidenceChecker`, `EvidencePassthroughGenerator`, `evaluation.py`, `pipeline.py`.
+
+### 기준선은 코사인 유사도에서만 뜻이 있다
+
+`TEMP_EVIDENCE_MIN_SCORE = 0.40`은 Pinecone 코사인 유사도를 실측해서 정한 값이다.
+검색기가 바뀌면 이 숫자는 그대로 쓸 수 없다.
+
+PR #19의 하이브리드 검색은 Pinecone과 BM25를 **RRF(순위 융합)** 로 합치고
+`score_type`을 `"relevance"`로 바꿔서 돌려준다. RRF 점수는 순위의 역수를 더한 값이라
+기본 가중치(dense 1.5 / bm25 1.0, `rrf_k=60`)에서 **이론상 최댓값이 `2.5/61 ≈ 0.041`** 이다.
+0.40 기준선을 그대로 들이대면 1위 조각조차 미달이 되어 **모든 질문이 보류**된다.
+
+실제로 확인한 결과다. 같은 하이브리드 결과를 넣고 변경 전후를 비교했다.
+
+```
+변경 전  ->  insufficient_evidence   citations 0
+변경 후  ->  answered                citations 3
+```
+
+그래서 `is_threshold_comparable()`이 `score_type`을 보고 판단한다.
+`"similarity"`가 아니면 척도가 다르므로 **비교하지 않고 통과**시킨다.
+
+화면 표기도 함께 따라간다. `retrieval.threshold_applies()` / `retrieval.score_label()`을 쓰면
+기준선을 적용하지 않은 결과에 `기준선 0.40`이나 `유사도`라는 말이 뜨지 않는다.
+숫자를 지우는 게 목적이 아니라, **적용하지 않은 기준을 적용한 것처럼 보이지 않게** 하는 게 목적이다.
+
+> Track A의 안내문은 `RAG_MIN_RETRIEVAL_SCORE` 환경 변수를 비우라고 한다.
+> 그건 Track B의 `GroundingPolicy`용이고 지금 `.env`에 설정돼 있지 않아 이미 동작하지 않는다.
+> Track C의 기준선은 별개의 파이썬 상수라 환경 변수를 비워도 영향을 받지 않는다. 둘을 혼동하지 말 것.
 
 ## 6. 역할 경계
 

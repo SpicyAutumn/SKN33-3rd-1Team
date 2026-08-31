@@ -16,6 +16,7 @@ for path in (PROJECT_ROOT / "app", PROJECT_ROOT / "src"):
 
 import rag_client  # noqa: E402
 import regions  # noqa: E402
+import retrieval  # noqa: E402
 from components.citations import group_by_document  # noqa: E402
 from tabs.explore import _build_payload  # noqa: E402
 
@@ -243,6 +244,75 @@ class ExplorationMapTest(unittest.TestCase):
     def test_no_contexts_returns_none(self):
         self.assertIsNone(_build_payload("질문", []))
 
+
+class HybridScoreTest(unittest.TestCase):
+    """검색기가 하이브리드로 바뀌어도 화면이 모든 질문을 보류하지 않아야 한다.
+
+    기준선 0.40은 코사인 유사도를 재서 정한 값이다. RRF 점수는 척도가 달라
+    기본 가중치에서 이론상 최댓값이 2.5/61 ≈ 0.041뿐이므로,
+    같은 값을 그대로 적용하면 어떤 조각도 통과하지 못한다.
+    """
+
+    RRF_CEILING = 2.5 / 61
+
+    @classmethod
+    def rrf(cls, chunk_id: str, document_id: str, *, rank: int = 1, score: float | None = None) -> dict:
+        item = context(
+            chunk_id=chunk_id,
+            document_id=document_id,
+            title=chunk_id,
+            rank=rank,
+            score=cls.RRF_CEILING if score is None else score,
+        )
+        item["score_type"] = "relevance"
+        return item
+
+    def test_rrf_ceiling_is_far_below_the_cosine_threshold(self):
+        """전제 확인: 최고점 조각조차 기준선 숫자에는 닿지 못한다."""
+        self.assertLess(self.RRF_CEILING, rag_client.TEMP_EVIDENCE_MIN_SCORE)
+
+    def test_rrf_score_is_not_graded_against_the_cosine_threshold(self):
+        self.assertFalse(rag_client.is_threshold_comparable(self.rrf("c1", "d1")))
+        self.assertTrue(rag_client.meets_threshold(self.rrf("c1", "d1")))
+
+    def test_cosine_score_is_still_graded(self):
+        passing = context(chunk_id="c1", document_id="d1", title="A", score=0.44)
+        failing = context(chunk_id="c2", document_id="d2", title="B", score=0.33)
+        self.assertTrue(rag_client.is_threshold_comparable(passing))
+        self.assertTrue(rag_client.meets_threshold(passing))
+        self.assertFalse(rag_client.meets_threshold(failing))
+
+    def test_missing_score_type_is_undecidable_and_passes(self):
+        item = context(chunk_id="c1", document_id="d1", title="A", score=0.01)
+        item.pop("score_type")
+        self.assertTrue(rag_client.meets_threshold(item))
+
+    def test_evidence_checker_does_not_hold_every_hybrid_answer(self):
+        contexts = [self.rrf("c1", "d1"), self.rrf("c2", "d2", rank=2, score=0.0403)]
+        self.assertEqual(rag_client.ScoreEvidenceChecker().decide("q", contexts), "sufficient")
+
+    def test_generator_keeps_hybrid_contexts_as_evidence(self):
+        contexts = [self.rrf("c1", "d1"), self.rrf("c2", "d2", rank=2, score=0.0403)]
+        result = rag_client.EvidencePassthroughGenerator().invoke(GeneratorContractTest.request(contexts))
+        self.assertEqual(result["candidate_response_type"], "answered")
+        self.assertEqual(result["used_chunk_ids"], ["c1", "c2"])
+
+
+class ThresholdDisplayTest(unittest.TestCase):
+    """기준선을 적용하지 않은 결과에 기준선 숫자를 띄우면 틀린 설명이 된다."""
+
+    def test_cosine_results_are_reported_as_graded(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="A", score=0.44)]
+        self.assertTrue(retrieval.threshold_applies(contexts))
+        self.assertEqual(retrieval.score_label(contexts), "유사도")
+
+    def test_hybrid_results_are_reported_as_ungraded(self):
+        contexts = [HybridScoreTest.rrf("c1", "d1")]
+        self.assertFalse(retrieval.threshold_applies(contexts))
+        self.assertEqual(retrieval.score_label(contexts), "관련도")
+
+    def test_no_contexts_is_ungraded(self):
+        self.assertFalse(retrieval.threshold_applies([]))
 
 if __name__ == "__main__":
     unittest.main()

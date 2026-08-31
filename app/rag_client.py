@@ -24,6 +24,9 @@ REQUIRED_ENV = ("OPENAI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX_NAME")
 # 값 근거: 범위 안 질문 최저 0.440, 범위 밖 질문 최고 0.335 (2026-08-31 실측)
 TEMP_EVIDENCE_MIN_SCORE = 0.40
 
+# 위 기준선을 적용해도 되는 점수 종류. 이 외의 척도는 비교하지 않고 통과시킨다.
+THRESHOLD_SCORE_TYPE = "similarity"
+
 # [제거 예정] 생성이 붙으면 used_chunk_ids는 생성 결과가 정한다.
 EVIDENCE_DOCUMENT_LIMIT = 3
 
@@ -59,13 +62,26 @@ def _score(context: dict[str, Any]) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
+def is_threshold_comparable(context: dict[str, Any]) -> bool:
+    """이 조각의 점수를 기준선과 견줘도 되는지 판단한다.
+
+    기준선 0.40은 코사인 유사도(`similarity`)를 재서 정한 값이다.
+    하이브리드 검색이 돌려주는 RRF 점수(`relevance`)는 척도가 완전히 달라
+    이론상 최댓값이 0.041뿐이므로, 같은 값을 들이대면 모든 조각이 미달이 되어
+    어떤 질문에도 답하지 못하는 상태가 된다.
+    """
+    return str(context.get("score_type", "")).strip() == THRESHOLD_SCORE_TYPE
+
+
 def meets_threshold(context: dict[str, Any], min_score: float = TEMP_EVIDENCE_MIN_SCORE) -> bool:
     """기준선 판정 한 곳.
 
-    점수를 제공하지 않는 검색기도 있으므로 `None`은 판단 불가로 보고 통과시킨다.
+    점수 척도가 다르거나 점수가 없으면 판단 불가로 보고 통과시킨다.
     `0.0`은 실제 점수이므로 `or` 대신 `is None`으로 구분한다.
     화면·근거 판정·근거 선택이 모두 이 함수를 쓴다.
     """
+    if not is_threshold_comparable(context):
+        return True
     score = _score(context)
     return score is None or score >= min_score
 

@@ -69,14 +69,17 @@ def _render_retrieval_quality(contexts: list[dict], used: set[str]) -> None:
     scores = [s for s in (_score(c) for c in contexts) if s is not None]
     passed = [c for c in contexts if retrieval.meets_threshold(c)]
     documents = {c.get("document_id") for c in contexts if c.get("document_id")}
+    graded = retrieval.threshold_applies(contexts)
+    label = retrieval.score_label(contexts)
 
     columns = st.columns(4)
     columns[0].metric("검색된 조각", f"{len(contexts)}건")
     columns[1].metric(
-        "기준선 통과",
+        "기준선 통과" if graded else "근거 후보",
         f"{len(passed)}건",
-        delta=f"탈락 {len(contexts) - len(passed)}건" if len(passed) < len(contexts) else None,
+        delta=f"탈락 {len(contexts) - len(passed)}건" if graded and len(passed) < len(contexts) else None,
         delta_color="off",
+        help=None if graded else "점수 척도가 코사인 유사도가 아니어서 기준선을 적용하지 않았습니다.",
     )
     columns[2].metric(
         "검색된 문서",
@@ -86,13 +89,13 @@ def _render_retrieval_quality(contexts: list[dict], used: set[str]) -> None:
         help="검색된 조각 전체가 몇 개 문서에서 나왔는지입니다. 기준선 통과 여부와 무관합니다.",
     )
     columns[3].metric(
-        "최고 유사도",
+        f"최고 {label}",
         f"{max(scores):.3f}" if scores else "—",
         delta=f"1·2위 격차 {scores[0] - scores[1]:+.3f}" if len(scores) >= 2 else None,
         delta_color="off",
     )
 
-    st.markdown("##### 유사도 분포")
+    st.markdown(f"##### {label} 분포")
     _render_score_bars(contexts, used)
 
     for note in _observations(contexts, documents, scores):
@@ -102,7 +105,9 @@ def _render_retrieval_quality(contexts: list[dict], used: set[str]) -> None:
 def _render_score_bars(contexts: list[dict], used: set[str]) -> None:
     """조각별 유사도를 막대로 그리고 기준선 통과 여부를 색으로 구분한다."""
     scores = [s for s in (_score(c) for c in contexts) if s is not None]
-    ceiling = max(scores + [retrieval.EVIDENCE_MIN_SCORE]) * 1.15 if scores else 1.0
+    graded = retrieval.threshold_applies(contexts)
+    baseline = [retrieval.EVIDENCE_MIN_SCORE] if graded else []
+    ceiling = max(scores + baseline) * 1.15 if scores or baseline else 1.0
 
     rows = []
     for context in contexts:
@@ -111,7 +116,12 @@ def _render_score_bars(contexts: list[dict], used: set[str]) -> None:
         passes = retrieval.meets_threshold(context)
         width = (score / ceiling * 100) if score is not None else 0.0
         state = "used" if is_used else ("pass" if passes else "drop")
-        label = "답변에 사용" if is_used else ("기준선 통과" if passes else "기준선 미달")
+        if is_used:
+            label = "답변에 사용"
+        elif not graded:
+            label = "근거 후보"
+        else:
+            label = "기준선 통과" if passes else "기준선 미달"
         score_text = f"{score:.3f}" if score is not None else "—"
         title = escape(str(context.get("title", "제목 없음")))
         rank = escape(str(context.get("retrieval_rank", "-")))
@@ -125,11 +135,17 @@ def _render_score_bars(contexts: list[dict], used: set[str]) -> None:
             f"</div>"
         )
 
-    threshold_pct = retrieval.EVIDENCE_MIN_SCORE / ceiling * 100
+    if graded:
+        threshold_pct = retrieval.EVIDENCE_MIN_SCORE / ceiling * 100
+        note = f"점선 = 기준선 {retrieval.EVIDENCE_MIN_SCORE:.2f}"
+    else:
+        # 척도가 다른 점수에 기준선을 그으면 없는 근거를 있는 것처럼 보이게 한다.
+        threshold_pct = 0.0
+        note = "점수 척도가 코사인 유사도가 아니어서 기준선을 적용하지 않았습니다."
     st.html(
         f'<div class="eval-chart" style="--eval-threshold:{threshold_pct:.1f}%">'
         + "".join(rows)
-        + f'<p class="eval-note">점선 = 기준선 {retrieval.EVIDENCE_MIN_SCORE:.2f}</p>'
+        + f'<p class="eval-note">{escape(note)}</p>'
         + "</div>"
     )
 
@@ -141,15 +157,23 @@ def _observations(contexts: list[dict], documents: set[str], scores: list[float]
             f"조각 {len(contexts)}건이 문서 {len(documents)}개에서 나왔습니다. "
             "같은 문서 조각이 상위 자리를 나눠 갖고 있습니다."
         )
-    if len(scores) >= 3:
+    graded = retrieval.threshold_applies(contexts)
+    # 아래 두 관찰은 코사인 유사도 척도를 전제로 한 값이다.
+    # 척도가 다른 점수에 그대로 적용하면 매번 참이 되어 틀린 설명을 만든다.
+    if graded and len(scores) >= 3:
         spread = scores[1] - scores[-1]
         if spread < 0.05:
             notes.append(
                 f"2위부터 {len(scores)}위까지 점수 차이가 {spread:.3f}뿐이라 "
                 "그 구간의 순위는 변별력이 낮습니다."
             )
-    if scores and scores[0] < retrieval.EVIDENCE_MIN_SCORE:
+    if graded and scores and scores[0] < retrieval.EVIDENCE_MIN_SCORE:
         notes.append("모든 조각이 기준선에 못 미쳐 답변을 보류했습니다.")
+    if not graded and scores:
+        notes.append(
+            "여러 검색 결과를 순위로 합친 관련도 점수입니다. "
+            "코사인 유사도가 아니므로 기준선 0.40과 견줄 수 없습니다."
+        )
     return notes
 
 

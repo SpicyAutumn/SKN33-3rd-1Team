@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,"Malgun Gothic",sans-serif;color:#20334b}
+.map{position:relative;border:1px solid #dce6ef;border-radius:22px;overflow:hidden;background:#f8fbff}
+.top{padding:22px 26px 18px;border-bottom:1px solid #e5edf6;display:flex;align-items:center;justify-content:space-between;gap:20px;background:#fff}
+.eyebrow{color:#6c83a0;font-size:10px;font-weight:800;letter-spacing:2px}
+.question{margin-top:7px;font-size:14px;line-height:1.5;max-width:650px;overflow-wrap:anywhere}
+.reset{border:1px solid #dce6ef;background:white;border-radius:10px;color:#566c85;padding:9px 13px;white-space:nowrap;cursor:pointer}
+.viewport{height:484px;overflow:auto;background-image:radial-gradient(#dbe5f0 .8px,transparent .8px);background-size:22px 22px;position:relative}
+.canvas{position:relative;min-width:100%;min-height:100%}
+svg{position:absolute;inset:0;pointer-events:none}
+.edge{fill:none;stroke:#bccde1;stroke-width:2}
+.node{position:absolute;width:160px;height:76px;border:1px solid #cbdcec;border-radius:17px;background:#fff;color:#2b486b;box-shadow:0 5px 18px #203e6210;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:7px;cursor:pointer;font:inherit;transition:background .2s,box-shadow .2s;animation:appear .24s ease-out}
+.node:hover{background:#eef5ff;box-shadow:0 7px 22px #203e6225}
+.node:focus-visible,.reset:focus-visible{outline:3px solid #e4b547;outline-offset:4px}
+.node.root{border-color:#3d79df;background:linear-gradient(140deg,#4e8aef,#306bdd);color:white;box-shadow:0 8px 23px #3d79df40}
+.node.open:not(.root){border-color:#4d88df;background:#edf4ff}
+.node.leaf{border-color:#c5e3db;background:#f4fcf9;color:#24705a}
+.node.leaf.selected{border-color:#268467;box-shadow:0 0 0 3px #26846722}
+.summary{position:absolute;bottom:62px;left:22px;right:22px;background:#fff;border:1px solid #beddd2;border-left:4px solid #328568;border-radius:14px;box-shadow:0 8px 30px #163b3422;padding:15px 44px 15px 18px;z-index:3}
+.summary[hidden]{display:none}
+.summary-heading{font-size:14px;font-weight:750;color:#25634e;margin-bottom:6px}
+.summary-text{font-size:13px;line-height:1.65;color:#314f44;overflow-wrap:anywhere}
+.summary-note{font-size:10px;color:#81968e;margin-top:6px}
+.summary-close{position:absolute;top:10px;right:10px;border:0;background:#eff6f3;border-radius:8px;color:#45685b;width:26px;height:26px;cursor:pointer}
+.summary-close:focus-visible{outline:3px solid #e4b547}
+.name{font-size:16px;font-weight:750;max-width:132px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.detail{font-size:10px;opacity:.72}
+.mark{position:absolute;right:-10px;top:27px;width:22px;height:22px;border:1px solid #cfdded;border-radius:50%;background:white;color:#4672a6;line-height:19px;font-size:16px}
+.footer{padding:15px 24px;background:white;border-top:1px solid #e5edf6;font-size:12px;display:flex;gap:16px;justify-content:space-between;color:#6c8096}
+.status{line-height:1.5}.count{white-space:nowrap;font-variant-numeric:tabular-nums}
+@keyframes appear{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
+@media(prefers-reduced-motion:reduce){.node{animation:none;transition:none}}
+</style>
+</head>
+<body>
+<section class="map" aria-label="클릭해서 확장하는 문화유산 지도">
+  <header class="top">
+    <div><div class="eyebrow">HERITAGE CONNECTIONS</div><div id="question" class="question"></div></div>
+    <button class="reset" id="reset" type="button">처음으로</button>
+  </header>
+  <div class="viewport" id="viewport"><div class="canvas" id="canvas">
+    <svg id="edges" aria-hidden="true"></svg><div id="nodes"></div>
+  </div></div>
+  <aside class="summary" id="summary" aria-label="문화유산 한 줄 설명" aria-live="polite" hidden>
+    <button type="button" class="summary-close" id="summary-close" aria-label="설명 닫기">×</button>
+    <div class="summary-heading" id="summary-heading"></div>
+    <div class="summary-text" id="summary-text"></div>
+    <div class="summary-note">시연용 설명 · 실제 검색 원문과 연결 전</div>
+  </aside>
+  <footer class="footer"><span class="status" id="status" role="status" aria-live="polite"></span><span class="count" id="count"></span></footer>
+</section>
+<script>
+const data = __EXPLORATION_DATA__;
+const root = {id:"root",name:data.root,relation:"검색된 문화유산",depth:0,open:false,children:null,ancestors:[]};
+const canvas=document.getElementById("canvas"), edges=document.getElementById("edges");
+const nodes=document.getElementById("nodes"), status=document.getElementById("status");
+document.getElementById("question").textContent=data.question;
+const nodeLookup=new Map();
+let selectedLeafId=null;
+const summary=document.getElementById("summary");
+function hideSummary(){
+  selectedLeafId=null;summary.hidden=true;
+  for(const button of nodes.children){button.classList.remove("selected");if(button.classList.contains("leaf"))button.setAttribute("aria-expanded","false");}
+}
+function showSummary(node){
+  if(selectedLeafId===node.id){hideSummary();return;}
+  hideSummary();selectedLeafId=node.id;
+  document.getElementById("summary-heading").textContent=node.name;
+  document.getElementById("summary-text").textContent=(data.summaries || {})[node.name] || "아직 이 주제의 설명이 준비되지 않았습니다.";
+  summary.hidden=false;
+  for(const button of nodes.children){
+    if(button.dataset.id===node.id){button.classList.add("selected");button.setAttribute("aria-expanded","true");}
+  }
+}
+document.getElementById("summary-close").addEventListener("click",()=>{
+  const previous=selectedLeafId;hideSummary();
+  const button=[...nodes.children].find(item=>item.dataset.id===previous);
+  if(button)button.focus({preventScroll:true});
+});
+document.addEventListener("keydown",event=>{if(event.key==="Escape")hideSummary();});
+function itemsFor(node){
+  const items=node.depth===0 ? data.keywords : (data.related[node.name] || []);
+  return items.filter(item=>item.keyword && item.keyword!==node.name && !node.ancestors.includes(item.keyword));
+}
+function childrenFor(node){
+  if(node.children===null) node.children=itemsFor(node).map((item,index)=>({
+    id:node.id+"-"+index,name:item.keyword,relation:item.relation||"연관 주제",
+    depth:node.depth+1,open:false,children:null,ancestors:[...node.ancestors,node.name]
+  }));
+  return node.children;
+}
+function activeChildren(node){return node.open ? childrenFor(node) : []}
+function weight(node){const kids=activeChildren(node);return kids.length ? kids.reduce((sum,kid)=>sum+weight(kid),0) : 1}
+function draw(focusId){
+  const visible=[], links=[];
+  const height=Math.max(484,weight(root)*88+44);
+  function place(node,top,bottom){
+    node.x=54+node.depth*260;node.y=(top+bottom)/2-38;visible.push(node);
+    const kids=activeChildren(node);let cursor=top;
+    const total=kids.reduce((sum,kid)=>sum+weight(kid),0);
+    for(const kid of kids){const end=cursor+(bottom-top)*weight(kid)/total;place(kid,cursor,end);links.push([node,kid]);cursor=end;}
+  }
+  place(root,22,height-22);
+  const depth=Math.max(...visible.map(node=>node.depth));
+  const width=Math.max(document.getElementById("viewport").clientWidth-2,depth*260+268);
+  canvas.style.width=width+"px";canvas.style.height=height+"px";
+  edges.setAttribute("width",width);edges.setAttribute("height",height);edges.replaceChildren();
+  for(const [from,to] of links){
+    const line=document.createElementNS("http://www.w3.org/2000/svg","path");
+    const x1=from.x+160,y1=from.y+38,x2=to.x,y2=to.y+38,m=(x1+x2)/2;
+    line.setAttribute("d","M "+x1+" "+y1+" C "+m+" "+y1+", "+m+" "+y2+", "+x2+" "+y2);
+    line.setAttribute("class","edge");edges.append(line);
+  }
+  nodes.replaceChildren();nodeLookup.clear();
+  for(const node of visible){
+    nodeLookup.set(node.id,node);
+    const hasChildren=itemsFor(node).length>0;
+    const button=document.createElement("button");
+    button.type="button";button.dataset.id=node.id;
+    button.className="node"+(node.depth===0?" root":"")+(node.open?" open":"")+(!hasChildren?" leaf":"")+(selectedLeafId===node.id?" selected":"");
+    button.style.left=node.x+"px";button.style.top=node.y+"px";
+    button.setAttribute("aria-label",node.name);
+    button.setAttribute("aria-expanded",String(hasChildren?node.open:selectedLeafId===node.id));
+    if(!hasChildren) button.setAttribute("aria-controls","summary");
+    button.title=hasChildren ? (node.open?"클릭하면 가지 접기":"클릭하면 연관 키워드 펼치기") : "클릭하면 한 줄 설명 보기";
+    const name=document.createElement("span");name.className="name";name.textContent=node.name;
+    const detail=document.createElement("span");detail.className="detail";
+    detail.textContent=node.depth===0 ? (node.open?"한 번 더 누르면 접기":"눌러서 탐험 시작") : node.relation;
+    button.append(name,detail);
+    if(hasChildren){const mark=document.createElement("span");mark.className="mark";mark.setAttribute("aria-hidden","true");mark.textContent=node.open?"−":"+";button.append(mark);}
+    button.addEventListener("click",()=>{
+      if(!hasChildren){showSummary(node);return;}
+      hideSummary();
+      node.open=!node.open;
+      status.textContent=node.open ? "‘"+node.name+"’에서 "+childrenFor(node).length+"개의 연결 주제를 펼쳤어요. 키워드를 눌러 계속 탐험하세요." : "‘"+node.name+"’의 가지를 접었어요.";
+      draw(node.id);
+    });
+    nodes.append(button);
+  }
+  document.getElementById("count").textContent=visible.length+"개 주제";
+  if(focusId){const focus=[...nodes.children].find(button=>button.dataset.id===focusId);if(focus)focus.focus({preventScroll:true});}
+}
+document.getElementById("reset").addEventListener("click",()=>{
+  hideSummary();root.open=false;root.children=null;draw();
+  document.getElementById("viewport").scrollTo(0,0);
+  status.textContent="파란 ‘"+data.root+"’를 눌러 연관 키워드를 펼쳐보세요.";
+});
+status.textContent="파란 ‘"+data.root+"’를 눌러 연관 키워드를 펼쳐보세요.";
+draw();
+window.addEventListener("resize",()=>draw());
+</script>
+</body></html>

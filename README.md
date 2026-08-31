@@ -30,6 +30,27 @@
 - 문서에 답이 없는 질문에는 추측하지 않고 근거 부족으로 답한다.
 - API 키, 개인정보, 저작권 문제가 있는 원문을 GitHub에 올리지 않는다.
 
+## 👥 팀 소개
+
+우리 팀은 신뢰할 수 있는 문화유산 자료를 기반으로 수준별 설명과 출처를 제공하는
+RAG 기반 AI 문화유산 지식 안내 서비스를 개발합니다.
+
+| 이름 | 주요 임무 |
+| :--- | :--- |
+| 채수환 | 프로젝트 목표·범위 정의, 일정 관리, 작업 조정, 결과물 통합 |
+| 김유진 | API 데이터 수집·원본 저장·출처·라이선스·`manifest` 정리 |
+| 권세진 (팀장) | 데이터 정제·청킹·임베딩·Vector DB 적재·검색 테스트 |
+| 신가을 | Prompt Baseline·Fine-tuning 데이터 설계 및 학습·모델 비교·수준별 표현 평가 |
+| 이준희 | RAG Chain·LLM 연동·근거 판정 및 재검색·출처·안전장치·통합 평가 |
+| 김문규 | Streamlit·UX·실제 응답 연동·시연·배포·발표 |
+
+### 공통 협업 원칙
+
+- 담당 업무는 주 책임 영역이며, 다른 팀원이 검토하거나 지원할 수 있습니다.
+- 인터페이스가 연결되는 작업은 담당자 간 사전 협의를 거칩니다.
+- 주요 설계 변경은 Pull Request와 회의 기록을 통해 공유합니다.
+- 모델과 기능의 최종 채택은 개인 담당자가 아닌 팀의 평가 결과를 바탕으로 결정합니다.
+
 ## 2. 수업 내용 기반 구현 원칙
 
 프로젝트의 기본선은 수업에서 배운 `문서 → 청크 → 임베딩 → 벡터 저장소 → 검색 → 프롬프트 → LLM 답변` 흐름입니다.
@@ -325,3 +346,103 @@ HTML 보고서는 방사형 그래프와 상세 비교표를 확인하는 시각
 ## 14. 한계 및 향후 보완
 
 이 저장소는 프로젝트 주제가 확정되기 전의 **출발용 템플릿**입니다. 현재의 아키텍처, 패키지, 폴더 구조, 평가 항목은 정답이 아니며 실제 데이터와 사용자 요구를 확인한 뒤 변경해야 합니다. 특히 Vector DB, Fine-tuning, LangGraph는 이름을 넣는 것이 목표가 아니라 문제 해결에 필요한지 실험으로 설명할 수 있어야 합니다.
+
+## 15. A트랙: 한국민족문화대백과사전 원본 준비
+
+이 단계는 일반 항목 CSV와 공식 OpenAPI의 일치성을 표본 감사하고, 팀이 명시적으로 선택한 EID의 JSON 원본과 추적 가능한 manifest를 만드는 데까지만 담당합니다. 미디어 메타데이터 CSV는 항목 본문과 단위가 다르고 자료별 저작권 확인이 필요하므로 수집하지 않습니다.
+
+### API 키 설정
+
+프로젝트 최상위에 `.env`를 만들고 발급받은 키만 직접 입력합니다. 키를 명령 인자에 넣거나 출력·로그·Git에 저장하지 않습니다.
+
+```ini
+AKS_API_KEY=발급받은_키
+```
+
+기본 URL은 `.env.example`의 `AKS_API_BASE_URL=https://devin.aks.ac.kr:8080/api`이며 보통 수정할 필요가 없습니다. 의존성을 설치하지 않았다면 먼저 다음을 실행합니다.
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+### CSV·API 표본 감사
+
+```bash
+python scripts/audit_aks_api.py
+```
+
+기본값은 표본 25건, seed `20260828`입니다. CSV `분야`의 `/` 앞 대분야를 층으로 사용해 모든 대분야를 최소 1건 포함하고 나머지를 모집단 비율로 배분합니다. 재현 실험 시 값을 명시할 수 있습니다.
+
+```bash
+python scripts/audit_aks_api.py --sample-size 25 --seed 20260828
+```
+
+키가 없으면 API를 호출하지 않고 CSV 품질 검사·표본 선정·`missing_api_key` 기록까지만 안전하게 수행합니다. 키를 설정한 뒤 같은 명령을 다시 실행하면 `data/raw/api_audit/{EID}.json`과 비교 결과가 갱신됩니다.
+
+### 선택 EID 원본 수집
+
+`data/selection/selected_eids.csv`의 `eid` 열에 팀이 최종 선택한 EID만 한 줄씩 넣은 뒤 실행합니다.
+
+```csv
+eid
+E0000002
+E0000003
+```
+
+```bash
+python scripts/collect_selected_aks.py
+```
+
+이 명령은 선택 파일에 있는 유효한 EID만 `data/raw/api/{EID}.json`으로 저장합니다. 빈 선택 파일, 잘못된 EID, 일반 항목 CSV에 없는 EID는 전수 수집으로 확대하지 않습니다.
+
+전체 수집은 API 제공 조건과 저장 공간을 검토한 뒤에만, 의도적으로 `--all`을 붙여 실행합니다. 중단 후 같은 명령을 실행하면 이미 저장된 JSON은 건너뛰며, 진행 상태는 `outputs/api_full_collection_progress.json`에서 확인합니다.
+
+```bash
+python scripts/collect_all_aks.py --all
+```
+
+### 결과와 manifest 확인
+
+- `data/manifest.csv`: EID별 출처, 수집 시각, SHA-256, 원본 경로, 본문 길이, 라이선스 메모, 상태·오류
+- `outputs/csv_api_comparison.csv`: 표본별 CSV/API 비교
+- `outputs/csv_api_audit.json`: 통계와 기계 판독 결과
+- `outputs/csv_api_audit_report.md`: 사람이 읽는 감사 보고서
+- `docs/document-card.md`: 출처, 이용 조건, 원본 보관 정책, 미디어 제외 기준
+
+원본 JSON과 manifest의 체크섬·EID·본문·경로 연결을 전수 점검하려면 다음을 실행합니다.
+
+```bash
+python scripts/validate_aks_collection.py
+```
+
+### 원본 전달·재수집 위치
+
+원본 JSON과 기준 CSV는 저작권·용량 관리상 Git에 넣지 않습니다. 현재 수집 작업공간의 전달 패키지 위치와 팀 공유 드라이브 전달 대상은 다음과 같습니다. 업로드할 때도 **파일명과 `checksums.json`의 SHA-256을 유지**합니다.
+
+- 팀 공유 드라이브 전달 폴더: [Google Drive · AKS 원본 데이터](https://drive.google.com/drive/folders/1suuH0gytA1T2ht0OEyvpvpHH1kM4nkVM)
+- 업로드 대상: `aks_raw_api_first10000_20260828.zip`, `aks_source_csv_20240130.zip`, `checksums.json`
+
+| 용도 | 작업공간 전달 위치 | 내용 |
+| :--- | :--- | :--- |
+| 원본 JSON 전달 패키지 | `data/handoff/aks_raw_api_first10000_20260828.zip` | 수집된 API JSON, 1만 EID 단위 manifest, 무결성 검증 결과 |
+| 재수집용 기준 CSV 패키지 | `data/handoff/aks_source_csv_20240130.zip` | 일반 항목 CSV 원본(`한국민족문화대백과사전_20240130.csv`) |
+| 검증값 | `data/handoff/checksums.json` | 두 압축파일과 전달 manifest의 SHA-256 |
+| 압축 재생성 명령 | `python scripts/package_aks_handoff.py` | 현재 원본·manifest 기준으로 패키지 재생성 |
+
+`data/handoff/`는 Git에서 제외된 전달 패키지 생성 위치다. 위 Google Drive 폴더에 세 파일을 **2026-08-28에 업로드 완료**했으며, 팀원은 동일한 폴더에서 내려받아 `checksums.json`의 SHA-256을 비교한다.
+
+압축을 푼 뒤 실제 corpus로 사용할 행은 반드시 아래 조건을 모두 만족해야 합니다. 이 조건은 감사 표본(`data/raw/api_audit/`)과 API 원문 부재·본문 누락 항목을 제외합니다.
+
+```text
+raw_file_path starts with "data/raw/api/"
+AND has_body = true
+AND status in {"ok", "warning"}
+```
+
+현재 전달 패키지에서 이 조건을 만족하는 항목은 **9,960건**입니다. `manifest_collection_first10000.csv`에는 1만 EID의 성공·경고·오류 상태가 함께 들어 있으므로, 위 조건으로 필터링한 후 정제·청킹을 시작합니다.
+
+단위 테스트는 네트워크와 실제 키 없이 모의 API 응답으로 실행합니다.
+
+```bash
+python -m pytest -q
+```

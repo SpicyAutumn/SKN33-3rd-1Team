@@ -102,6 +102,26 @@ class RagService:
         interaction_id: str | None = None,
         clarification_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Return only the contract-stable ServiceResponse."""
+
+        execution = self.answer_with_trace(
+            question,
+            audience_level=audience_level,
+            interaction_id=interaction_id,
+            clarification_context=clarification_context,
+        )
+        return execution["response"]
+
+    def answer_with_trace(
+        self,
+        question: str,
+        *,
+        audience_level: str = "general",
+        interaction_id: str | None = None,
+        clarification_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return ServiceResponse plus the single-pass retrieval trace for UI and evaluation."""
+
         if not isinstance(question, str):
             raise RagServiceError("invalid_request", "question must be a string")
         question = question.strip()
@@ -117,12 +137,16 @@ class RagService:
         interaction_id = interaction_id or f"INT-{uuid.uuid4().hex}"
 
         if is_unsafe_request(question):
-            return self._semantic_response(
-                request_id=request_id,
-                interaction_id=interaction_id,
-                response_type="safety_refusal",
-                message="시스템 지시나 비밀정보를 공개하는 요청에는 답할 수 없습니다.",
-                audience_level=audience_level,
+            return self._execution_result(
+                response=self._semantic_response(
+                    request_id=request_id,
+                    interaction_id=interaction_id,
+                    response_type="safety_refusal",
+                    message="시스템 지시나 비밀정보를 공개하는 요청에는 답할 수 없습니다.",
+                    audience_level=audience_level,
+                ),
+                contexts=[],
+                used_chunk_ids=[],
             )
 
         if self.scope_checker is not None:
@@ -133,12 +157,16 @@ class RagService:
             if not isinstance(in_scope, bool):
                 raise RagServiceError("upstream_error", "scope checker must return a boolean")
             if not in_scope:
-                return self._semantic_response(
-                    request_id=request_id,
-                    interaction_id=interaction_id,
-                    response_type="out_of_scope",
-                    message="한국 역사·문화 자료의 범위를 벗어난 질문입니다.",
-                    audience_level=audience_level,
+                return self._execution_result(
+                    response=self._semantic_response(
+                        request_id=request_id,
+                        interaction_id=interaction_id,
+                        response_type="out_of_scope",
+                        message="한국 역사·문화 자료의 범위를 벗어난 질문입니다.",
+                        audience_level=audience_level,
+                    ),
+                    contexts=[],
+                    used_chunk_ids=[],
                 )
 
         try:
@@ -149,12 +177,16 @@ class RagService:
 
         grounding_decision = self._decide_grounding(question, contexts)
         if grounding_decision == "insufficient":
-            return self._semantic_response(
-                request_id=request_id,
-                interaction_id=interaction_id,
-                response_type="insufficient_evidence",
-                message="현재 검색된 자료에서는 질문에 답할 충분한 근거를 찾지 못했습니다.",
-                audience_level=audience_level,
+            return self._execution_result(
+                response=self._semantic_response(
+                    request_id=request_id,
+                    interaction_id=interaction_id,
+                    response_type="insufficient_evidence",
+                    message="현재 검색된 자료에서는 질문에 답할 충분한 근거를 찾지 못했습니다.",
+                    audience_level=audience_level,
+                ),
+                contexts=contexts,
+                used_chunk_ids=[],
             )
 
         generation_request = {
@@ -172,12 +204,16 @@ class RagService:
         if result["candidate_response_type"] == "insufficient_evidence":
             grounding_decision = self._decide_grounding(question, contexts)
             if grounding_decision == "insufficient":
-                return self._semantic_response(
-                    request_id=request_id,
-                    interaction_id=interaction_id,
-                    response_type="insufficient_evidence",
-                    message=result["draft_message"],
-                    audience_level=audience_level,
+                return self._execution_result(
+                    response=self._semantic_response(
+                        request_id=request_id,
+                        interaction_id=interaction_id,
+                        response_type="insufficient_evidence",
+                        message=result["draft_message"],
+                        audience_level=audience_level,
+                    ),
+                    contexts=contexts,
+                    used_chunk_ids=[],
                 )
             for _ in range(self.config.generation_retries):
                 result = self._invoke_generator(generation_request)
@@ -189,7 +225,25 @@ class RagService:
                     "generator rejected evidence that passed the service grounding policy",
                 )
 
-        return self._finalize(generation_request, result)
+        return self._execution_result(
+            response=self._finalize(generation_request, result),
+            contexts=contexts,
+            used_chunk_ids=result["used_chunk_ids"],
+        )
+
+    def _execution_result(
+        self,
+        *,
+        response: dict[str, Any],
+        contexts: list[dict[str, Any]],
+        used_chunk_ids: list[str],
+    ) -> dict[str, Any]:
+        return {
+            "response": response,
+            "retrieved_contexts": list(contexts),
+            "used_chunk_ids": list(dict.fromkeys(used_chunk_ids)),
+            "retrieval_top_k": self.config.top_k,
+        }
 
     def _decide_grounding(self, question: str, contexts: list[dict[str, Any]]) -> str:
         precheck = self.config.grounding_policy.decide(contexts)

@@ -28,19 +28,38 @@ def _render_clarification(response: dict) -> None:
     st.write(clarification.get("question", response["message"]))
     _listen_button("clarification", clarification.get("question", response["message"]))
 
-    options = clarification.get("options", [])[:3]
+    # 계약 0.3.0-draft: 선택지는 {id, label, source_chunk_ids} 객체다.
+    options = [option for option in clarification.get("options", []) if isinstance(option, dict)][:3]
     columns = st.columns(max(1, len(options)))
-    for column, option in zip(columns, options, strict=False):
+    for index, (column, option) in enumerate(zip(columns, options, strict=False)):
+        label = str(option.get("label") or option.get("id") or "선택지")
+        option_id = str(option.get("id") or f"option-{index + 1}")
         with column:
-            if st.button(option, use_container_width=True, key=f"option-{option}"):
-                st.session_state["selected_clarification"] = option
-                st.success(f"‘{option}’을 선택했습니다. 실제 RAG 연결 후 이 값을 다음 질문에 전달합니다.")
+            if st.button(label, use_container_width=True, key=f"clarify-{option_id}"):
+                _select_clarification(response, clarification, option)
+                st.rerun()
 
-    left, right = st.columns(2)
-    with left:
-        st.text_input("직접 입력하기", key="clarification_input", placeholder="대상을 직접 입력하세요")
-    with right:
-        st.button("다른 후보 찾기", key="more-candidates", use_container_width=True)
+    typed = st.text_input("직접 입력하기", key="clarification_input", placeholder="대상을 직접 입력하세요")
+    if st.button("이 내용으로 다시 질문", key="clarify-typed", use_container_width=True):
+        if typed.strip():
+            _select_clarification(response, clarification, {"id": "typed", "label": typed.strip()})
+            st.rerun()
+        else:
+            st.warning("확인할 대상을 입력해 주세요.")
+
+
+def _select_clarification(response: dict, clarification: dict, option: dict) -> None:
+    """선택 결과를 다음 요청의 ClarificationContext로 넘긴다."""
+    result = st.session_state.get("last_result", {})
+    original = result.get("question", "")
+    st.session_state["clarification_context"] = {
+        "original_question": original,
+        "clarification_question": clarification.get("question", ""),
+        "clarification_response": str(option.get("label", "")),
+        "clarification_turn_count": 1,
+    }
+    st.session_state["interaction_id"] = response.get("interaction_id")
+    st.session_state["pending_question"] = original
 
 
 def _render_correction(response: dict) -> None:

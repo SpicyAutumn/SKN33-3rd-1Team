@@ -50,6 +50,44 @@ def _flat_metadata(chunk: Chunk) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
 
+def _nullable_text(value: Any) -> str | None:
+    """Normalize legacy Pinecone text values to the 0.3 RetrievedContext rule."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned if cleaned and cleaned.upper() != "NONE" else None
+
+
+def _required_metadata_text(metadata: dict[str, Any], field_name: str) -> str:
+    """Read a mandatory RetrievedContext value without producing the string ``"None"``."""
+    value = _nullable_text(metadata.pop(field_name, None))
+    if value is None:
+        raise ValueError(f"Pinecone metadata.{field_name} must be a non-empty string")
+    return value
+
+
+def _normalize_v1_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Make legacy v1 vector metadata safe for the shared RetrievedContext contract.
+
+    The already-indexed v1 namespace has no ``chunking_fingerprint`` field.
+    It is an optional trace value, so ``null`` preserves that fact without
+    requiring a costly re-chunking or re-indexing run.
+    """
+    normalized: dict[str, Any] = {}
+    for key, value in metadata.items():
+        normalized[key] = _nullable_text(value) if isinstance(value, str) else value
+
+    raw_aliases = normalized.get("aliases")
+    if not isinstance(raw_aliases, list):
+        normalized["aliases"] = []
+    else:
+        normalized["aliases"] = [
+            alias for alias in (_nullable_text(value) for value in raw_aliases) if alias is not None
+        ]
+    normalized.setdefault("chunking_fingerprint", None)
+    return normalized
+
+
 class PineconeRetriever:
     """Small adapter that returns the team's RetrievedContext contract."""
 
@@ -174,19 +212,20 @@ class PineconeRetriever:
             chunk_id = getattr(match, "id", None)
             if chunk_id is None and isinstance(match, dict):
                 chunk_id = match.get("id")
-            # The current Track B contract calls this field `source`. Existing
-            # vectors used `source_url`, so accept both while returning one
-            # stable, strict-schema-friendly shape to generation code.
-            source = metadata.pop("source", None) or metadata.pop("source_url", None) or None
+            # v1 vectors use `source` and can lack `chunking_fingerprint`.
+            # Convert only at retrieval time so the existing V1 index remains
+            # usable under the shared 0.3.0-draft contract.
+            source_url = _nullable_text(metadata.pop("source", None) or metadata.pop("source_url", None))
+            metadata.pop("page", None)
+            metadata = _normalize_v1_metadata(metadata)
             contexts.append(
                 {
                     "chunk_id": str(chunk_id),
-                    "document_id": str(metadata.pop("document_id", "")),
-                    "title": str(metadata.pop("title", "")),
-                    "content": str(metadata.pop("content", "")),
-                    "source": source,
-                    "page": metadata.pop("page", None),
-                    "section": metadata.pop("section", None) or None,
+                    "document_id": _required_metadata_text(metadata, "document_id"),
+                    "title": _required_metadata_text(metadata, "title"),
+                    "content": _required_metadata_text(metadata, "content"),
+                    "source_url": source_url,
+                    "section": _nullable_text(metadata.pop("section", None)),
                     "retrieval_rank": rank,
                     "retrieval_score": float(score) if score is not None else None,
                     "score_type": "similarity" if score is not None else "unknown",

@@ -70,7 +70,7 @@ def render() -> None:
     contexts = result.get("retrieved_contexts", [])
     used_ids = set(result.get("used_chunk_ids", []))
     scores = [s for s in (_score(c) for c in contexts) if s is not None]
-    passed = [c for c in contexts if (_score(c) or 1.0) >= retrieval.SCORE_THRESHOLD]
+    passed = [c for c in contexts if (_score(c) or 1.0) >= retrieval.EVIDENCE_MIN_SCORE]
     dropped = len(contexts) - len(passed)
     documents = {c.get("document_id") for c in contexts if c.get("document_id")}
 
@@ -99,7 +99,7 @@ def _render_flow(result, response, contexts, used_ids, scores, passed, dropped, 
         _stage(
             3,
             "<span class='process-note'>화면에는 보이지 않는 단계입니다.</span>",
-            f"기준선 <b>{retrieval.SCORE_THRESHOLD:.2f}</b> 미만은 근거로 쓰지 않습니다."
+            f"기준선 <b>{retrieval.EVIDENCE_MIN_SCORE:.2f}</b> 미만은 근거로 쓰지 않습니다."
             f"<br><span class='process-note'>통과 {len(passed)}건 · 탈락 {dropped}건 · 서로 다른 문서 {len(documents)}개</span>",
         ),
     ]

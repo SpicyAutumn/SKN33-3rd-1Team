@@ -67,7 +67,7 @@ def _render_retrieval_quality(contexts: list[dict], used: set[str]) -> None:
         return
 
     scores = [s for s in (_score(c) for c in contexts) if s is not None]
-    passed = [c for c in contexts if (_score(c) or 1.0) >= retrieval.SCORE_THRESHOLD]
+    passed = [c for c in contexts if (_score(c) or 1.0) >= retrieval.EVIDENCE_MIN_SCORE]
     documents = {c.get("document_id") for c in contexts if c.get("document_id")}
 
     columns = st.columns(4)
@@ -102,13 +102,13 @@ def _render_retrieval_quality(contexts: list[dict], used: set[str]) -> None:
 def _render_score_bars(contexts: list[dict], used: set[str]) -> None:
     """조각별 유사도를 막대로 그리고 기준선 통과 여부를 색으로 구분한다."""
     scores = [s for s in (_score(c) for c in contexts) if s is not None]
-    ceiling = max(scores + [retrieval.SCORE_THRESHOLD]) * 1.15 if scores else 1.0
+    ceiling = max(scores + [retrieval.EVIDENCE_MIN_SCORE]) * 1.15 if scores else 1.0
 
     rows = []
     for context in contexts:
         score = _score(context)
         is_used = context.get("chunk_id") in used
-        passes = (score if score is not None else 1.0) >= retrieval.SCORE_THRESHOLD
+        passes = (score if score is not None else 1.0) >= retrieval.EVIDENCE_MIN_SCORE
         width = (score / ceiling * 100) if score is not None else 0.0
         state = "used" if is_used else ("pass" if passes else "drop")
         label = "답변에 사용" if is_used else ("기준선 통과" if passes else "기준선 미달")
@@ -125,11 +125,11 @@ def _render_score_bars(contexts: list[dict], used: set[str]) -> None:
             f"</div>"
         )
 
-    threshold_pct = retrieval.SCORE_THRESHOLD / ceiling * 100
+    threshold_pct = retrieval.EVIDENCE_MIN_SCORE / ceiling * 100
     st.html(
         f'<div class="eval-chart" style="--eval-threshold:{threshold_pct:.1f}%">'
         + "".join(rows)
-        + f'<p class="eval-note">점선 = 기준선 {retrieval.SCORE_THRESHOLD:.2f}</p>'
+        + f'<p class="eval-note">점선 = 기준선 {retrieval.EVIDENCE_MIN_SCORE:.2f}</p>'
         + "</div>"
     )
 
@@ -148,7 +148,7 @@ def _observations(contexts: list[dict], documents: set[str], scores: list[float]
                 f"2위부터 {len(scores)}위까지 점수 차이가 {spread:.3f}뿐이라 "
                 "그 구간의 순위는 변별력이 낮습니다."
             )
-    if scores and scores[0] < retrieval.SCORE_THRESHOLD:
+    if scores and scores[0] < retrieval.EVIDENCE_MIN_SCORE:
         notes.append("모든 조각이 기준선에 못 미쳐 답변을 보류했습니다.")
     return notes
 

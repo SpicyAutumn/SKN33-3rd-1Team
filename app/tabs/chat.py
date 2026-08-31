@@ -1,5 +1,6 @@
 """Question and answer tab."""
 
+import logging
 from copy import deepcopy
 
 import streamlit as st
@@ -8,6 +9,8 @@ import retrieval
 from components import citations, response_cards
 from mock_responses import RESPONSES
 
+
+logger = logging.getLogger(__name__)
 
 LABELS = {
     "answered": "정상 답변",
@@ -77,16 +80,18 @@ def render() -> None:
 
 def _run(question: str, audience_level: str, *, live: bool) -> None:
     """질문을 처리해 결과를 세션에 저장한다."""
-    response = _fetch(question, audience_level, live=live)
-    if response is None:
+    execution = _fetch(question, audience_level, live=live)
+    if execution is None:
         return
+    response = execution["response"]
     st.session_state["last_result"] = {
         "question": question,
         "audience_level": response.get("audience_level", audience_level),
         "response": response,
-        "retrieved_contexts": response.get("retrieved_contexts", []),
-        "used_chunk_ids": response.get("used_chunk_ids", []),
-        "related_keywords": response.get("related_keywords", []),
+        "retrieved_contexts": execution.get("retrieved_contexts", []),
+        "used_chunk_ids": execution.get("used_chunk_ids", []),
+        "retrieval_top_k": execution.get("retrieval_top_k"),
+        "related_keywords": response.get("related_topics", []),
     }
     history = st.session_state.setdefault("question_history", [])
     history.append(
@@ -142,16 +147,31 @@ def _request_level(question: str, level: str, *, live: bool) -> None:
 
 
 def _fetch(question: str, audience_level: str, *, live: bool) -> dict | None:
-    """실제 검색이 가능하면 검색하고, 아니면 Mock 응답을 돌려준다."""
+    """RagService를 호출한다. 키가 없으면 Mock 응답을 같은 형식으로 감싸 돌려준다."""
     if live:
         with st.spinner("공식 자료를 검색하고 있습니다…"):
             try:
-                return retrieval.answer(question, audience_level=audience_level)
-            except Exception as error:  # noqa: BLE001 - 화면에 원인을 그대로 보여 준다
-                st.error(f"검색에 실패했습니다: {error}")
+                return retrieval.answer(
+                    question,
+                    audience_level=audience_level,
+                    interaction_id=st.session_state.pop("interaction_id", None),
+                    clarification_context=st.session_state.pop("clarification_context", None),
+                )
+            except Exception:  # noqa: BLE001
+                # 내부 오류 원문은 화면에 노출하지 않고 서버 로그로만 남긴다.
+                logger.exception("RAG 서비스 호출 실패: question=%r", question)
+                st.error(
+                    "지금은 자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요. "
+                    "문제가 계속되면 실행 환경의 API 키 설정을 확인해 주세요."
+                )
                 return None
 
     # [제거 예정] 아래 Mock 분기는 실제 검색이 안정화되면 통째로 삭제한다.
     response = deepcopy(RESPONSES[st.session_state.get("response_type", "answered")])
     response["audience_level"] = audience_level
-    return response
+    return {
+        "response": response,
+        "retrieved_contexts": response.get("retrieved_contexts", []),
+        "used_chunk_ids": response.get("used_chunk_ids", []),
+        "retrieval_top_k": len(response.get("retrieved_contexts", [])),
+    }

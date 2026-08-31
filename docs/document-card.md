@@ -92,7 +92,7 @@ python scripts/build_aks_manifest.py --verify-jsonl
 
 원본 감사와 청킹 감사는 구분한다. 이 문서와 `outputs/aks_raw_validation.*`은 원본 JSON·JSONL의 무결성을 다루며, 청크 수·길이 분포·너무 짧거나 긴 청크·원문과 청크의 표본 대조 결과는 [전처리 보고서](02_data_preprocessing_report.md)에 기록한다.
 
-전체 청킹 전달본(`data/processed/aks_full_chunks.jsonl`)을 manifest와 대조했다. 결과는 75,820문서·179,028청크이며, JSON 파싱 오류·필수 필드 오류·빈 청크·중복 청크 ID는 모두 0건이었다. 또한 manifest의 `has_body=true`, `status=ok` 대상 75,820건과 청킹 문서 ID가 완전히 일치했고, 제외 대상이 청킹 결과에 섞인 경우도 0건이었다. 재검증 명령은 다음과 같다.
+전체 청킹 전달본(`data/processed/aks_full_chunks.jsonl`)을 manifest와 대조했다. 결과는 75,820문서·179,028청크이며, JSON 파싱 오류·필수 필드 오류·빈 청크·중복 청크 ID는 모두 0건이었다. 또한 manifest의 `has_body=true`, `status=ok` 대상 75,820건과 청킹 문서 ID가 완전히 일치했고, 제외 대상이 청킹 결과에 섞인 경우도 0건이었다. 재검증은 문서 누락 또는 제외 대상 포함이 1건이라도 있으면 실패로 끝난다. JSON 보고서에는 입력 청킹 파일과 manifest의 경로·파일 크기·SHA-256 체크섬·검사 시각을 남긴다. 재검증 명령은 다음과 같다.
 
 ```powershell
 python scripts/validate_aks_chunks.py --input data/processed/aks_full_chunks.jsonl --report outputs/aks_full_chunks_validation.json

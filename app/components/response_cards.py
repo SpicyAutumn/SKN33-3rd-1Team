@@ -3,7 +3,6 @@
 import json
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 
 def render(response: dict) -> None:
@@ -51,19 +50,29 @@ def _render_correction(response: dict) -> None:
     _listen_button("correction", correction.get("corrected_premise", response["message"]))
 
 
+def _js_string(text: str) -> str:
+    """답변 문장을 JS 문자열 리터럴로 안전하게 감싼다.
+
+    `json.dumps`는 `<`를 그대로 두기 때문에 본문에 `</script>`가 들어 있으면
+    script 태그를 빠져나갈 수 있다. 답변과 근거 문장은 검색된 원문과 LLM 출력에서
+    오므로 신뢰할 수 없는 입력으로 다룬다.
+    """
+    return json.dumps(text, ensure_ascii=False).replace("<", r"\u003c")
+
+
 def _listen_button(key: str, text: str) -> None:
     """Read the displayed response through the browser's built-in Korean TTS."""
     if st.button("🔊 안내 듣기", key=f"listen-{key}"):
-        escaped_text = json.dumps(text, ensure_ascii=False)
-        components.html(
+        st.iframe(
             f"""
             <script>
               window.speechSynthesis.cancel();
-              const utterance = new SpeechSynthesisUtterance({escaped_text});
+              const utterance = new SpeechSynthesisUtterance({_js_string(text)});
               utterance.lang = "ko-KR";
               utterance.rate = 1;
               window.speechSynthesis.speak(utterance);
             </script>
             """,
-            height=0,
+            # st.iframe은 height=0을 허용하지 않는다. 소리만 내므로 1px로 숨긴다.
+            height=1,
         )

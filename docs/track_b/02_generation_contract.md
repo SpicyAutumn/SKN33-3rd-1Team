@@ -262,7 +262,7 @@ RAG Chain·통합 평가 담당이 `sufficient`로 판정했지만 생성 컴포
 
 ## 9. 서비스 응답 계약: `ServiceResponse`
 
-RAG Chain·통합 평가 담당이 검증을 마치고 UI·배포 담당에게 전달하는 최종 응답이다. `citations`는 LLM이 생성한 문자열이 아니라 `used_chunk_ids`와 같은 요청에서 검색한 `RetrievedContext`를 연결하여 만든다. Citation을 만들기 위해 Pinecone을 다시 조회하지 않는다.
+RAG Chain·통합 평가 담당이 검증을 마치고 UI·배포 담당에게 전달하는 최종 응답이다. `citations`는 LLM이 생성한 문자열이 아니라 생성 결과의 청크 ID와 같은 요청에서 검색한 `RetrievedContext`를 연결하여 만든다. Citation을 만들기 위해 Pinecone을 다시 조회하지 않는다.
 
 | 필드 | 자료형 | 필수 | 설명 |
 | :--- | :--- | :---: | :--- |
@@ -292,7 +292,19 @@ RAG Chain·통합 평가 담당이 검증을 마치고 UI·배포 담당에게 �
 }
 ```
 
-`content`와 출처 정보는 RAG Chain이 `used_chunk_ids`에 해당하는 `RetrievedContext`에서 그대로 복사한다. LLM은 Citation이나 근거 문장을 새로 작성하지 않는다. `source_url`은 UI의 `url`로 연결하고, 현재 AKS 데이터의 UI `source`는 출처 표시명인 `"한국민족문화대백과사전"`을 사용한다.
+`content`와 출처 정보는 RAG Chain이 같은 요청의 `RetrievedContext`에서 그대로 복사한다. LLM은 Citation이나 근거 문장을 새로 작성하지 않는다. `source_url`은 UI의 `url`로 연결하고, 현재 AKS 데이터의 UI `source`는 출처 표시명인 `"한국민족문화대백과사전"`을 사용한다.
+
+기본 응답의 Citation은 `used_chunk_ids`를 기준으로 구성한다. `corrected_premise`에서는 `used_chunk_ids` 뒤에 `premise_correction.source_chunk_ids`를 추가하고, 처음 등장한 순서를 유지하면서 중복 ID를 제거한다.
+
+```text
+used_chunk_ids
+→ premise_correction.source_chunk_ids 추가
+→ 중복 제거
+→ 같은 요청의 RetrievedContext에 존재하는지 검증
+→ Citation 조립
+```
+
+합쳐진 모든 ID는 같은 요청의 `RetrievedContext`에 실제로 존재해야 한다. 존재하지 않는 ID가 하나라도 있으면 Citation을 만들지 않고 `generation_error`로 처리한다. `insufficient_evidence`, `needs_clarification`, `safety_refusal`, `out_of_scope`의 Citation은 빈 목록 `[]`을 사용한다. `needs_clarification`의 `clarification.options[*].source_chunk_ids`는 선택지의 근거이므로 Citation에는 포함하지 않는다.
 
 ### 9.2. 최종 `ServiceResponse` 예시
 
@@ -396,11 +408,11 @@ RAG Chain·통합 평가 담당은 안전·서비스 범위를 검색 전에 먼
 | 응답 유형 | 필수 조건 |
 | :--- | :--- |
 | `answered` | `used_chunk_ids` 1개 이상, `clarification=null`, `premise_correction=null` |
-| `insufficient_evidence` | 질문은 명확해야 하며, `clarification=null`, `premise_correction=null` |
-| `needs_clarification` | `clarification.question` 필수, 질문 1개, 선택지 최대 3개, 근거 기반 선택지 ID 검증 |
-| `corrected_premise` | `premise_correction` 필수, 근거 `source_chunk_ids` 1개 이상 |
-| `safety_refusal` | `clarification=null`, `premise_correction=null`, 비밀 값을 메시지에 포함하지 않음 |
-| `out_of_scope` | `clarification=null`, `premise_correction=null` |
+| `insufficient_evidence` | 질문은 명확해야 하며, `used_chunk_ids=[]`, `citations=[]`, `clarification=null`, `premise_correction=null` |
+| `needs_clarification` | `used_chunk_ids=[]`, `citations=[]`, `clarification.question` 필수, 질문 1개, 선택지 최대 3개, 근거 기반 선택지 ID 검증 |
+| `corrected_premise` | `premise_correction` 필수, 근거 `source_chunk_ids` 1개 이상, 두 청크 ID 목록을 합치고 중복 제거 후 Citation 구성 |
+| `safety_refusal` | `used_chunk_ids=[]`, `citations=[]`, `clarification=null`, `premise_correction=null`, 비밀 값을 메시지에 포함하지 않음 |
+| `out_of_scope` | `used_chunk_ids=[]`, `citations=[]`, `clarification=null`, `premise_correction=null` |
 
 `related_topic_candidates`와 최종 `related_topics`는 `answered` 또는 `corrected_premise`일 때만 제공하는 것을 기본안으로 한다. 각 후보가 검색 근거를 사용하면 `source_chunk_ids`를 반드시 포함한다.
 
@@ -486,7 +498,7 @@ RAG Chain·통합 평가 담당은 안전·서비스 범위를 검색 전에 먼
 | S-02 | 검색 점수 표현 | 점수와 함께 `score_type`을 전달하고 임계값은 실제 결과로 결정 | 전처리·검색 데이터, RAG Chain·통합 평가 담당 | 검색 점수 실험 전 |
 | S-03 | 근거 판정 전달 | 서비스에서는 RAG Chain·통합 평가 담당이 `sufficient/insufficient`를 확정하고 `unchecked`는 오프라인 생성 실험에만 사용 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 | 리뷰 대응안 확정 |
 | S-04 | 설명 수준 | 내부 코드는 `easy/general/advanced`, UI 문구는 `쉽게/일반/깊이 있게` | 생성·Prompt·Fine-tuning, UI·배포 담당과 팀 | UI·Prompt 확정 전 |
-| S-05 | 출처 구성 | 생성 컴포넌트는 `used_chunk_ids`만 반환하고 RAG Chain이 같은 요청의 검색 결과로 Citation과 `content`를 조립 | 전처리·검색 데이터, 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 | 합의 완료 |
+| S-05 | 출처 구성 | 생성 컴포넌트가 반환한 청크 ID를 검증하고, `corrected_premise`는 두 ID 목록을 합쳐 중복 제거한 뒤 RAG Chain이 Citation과 `content`를 조립 | 전처리·검색 데이터, 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 | 합의 완료 |
 | S-06 | 서비스 응답 필드 | RAG의 `source_url`을 UI `url`로 연결하고 UI `source`는 출처 표시명 사용 | RAG Chain·통합 평가, UI·배포 담당 | 합의 완료 |
 | S-07 | 연관 항목 | MVP 포함 여부와 표시 형태를 팀에서 결정 | 프로젝트 관리·팀 의사결정, 생성·Prompt·Fine-tuning, RAG Chain·통합 평가, UI·배포 담당 | 생성 코드 구현 전 |
 | S-08 | 오류 책임 | 생성·파싱 오류는 생성 담당이 1차 기록하고 RAG 담당이 서비스 오류로 분류하며, Chain·외부 호출 오류는 RAG 담당이 기록 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 | 통합 테스트 전 |

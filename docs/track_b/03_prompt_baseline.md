@@ -114,7 +114,7 @@ grounding_decision: {grounding_decision}
 - candidate_response_type은 answered, insufficient_evidence, needs_clarification, corrected_premise, safety_refusal, out_of_scope 중 하나다.
 - answered이면 used_chunk_ids가 한 개 이상이고 clarification과 premise_correction은 null이다.
 - insufficient_evidence, safety_refusal, out_of_scope이면 used_chunk_ids는 빈 배열이고 clarification과 premise_correction은 null이다.
-- needs_clarification이면 clarification.question에 추가 질문 한 건을 작성하고 선택지는 최대 3개다.
+- needs_clarification이면 used_chunk_ids는 빈 배열이고 premise_correction은 null이며, clarification.question에 추가 질문 한 건을 작성하고 선택지는 최대 3개다.
 - corrected_premise이면 premise_correction과 그 근거 source_chunk_ids를 작성한다.
 - used_chunk_ids에는 위 RETRIEVED_CONTEXTS에 실제로 존재하고 답변에 사용한 ID만 작성한다.
 - premise_correction, clarification.options, related_topic_candidates의 모든 source_chunk_ids도 위 RETRIEVED_CONTEXTS에 존재하는 ID만 사용한다.

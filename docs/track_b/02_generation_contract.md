@@ -1,32 +1,30 @@
 # 생성 컴포넌트 입출력 계약 및 응답 스키마
 
-> 작성일: 2026-08-28  
-> 상태: PR #3 팀원 리뷰 대응안 반영 — 재검토 예정  
-> 스키마 버전: `0.2.0-draft`  
-> 변경 사유: `candidate_answerable`·`candidate_refusal` 구조를 `candidate_response_type` 중심으로 확장하고 `needs_clarification` 대화 상태를 추가한다.  
-> 전제: 실제 문서 표본 없이 설계한 작업용 초안이며, B·C·E·F와의 연동 검토 후 변경할 수 있다.
+> 작성일: 2026-08-30<br>
+> 상태: `0.3.0-draft` 계약안 승인 — 구현 동기화 예정<br>
+> 스키마 버전: `0.3.0-draft`<br>
+> 변경 사유: 실제 AKS 검색 결과와 Track A·B·C의 연동 합의를 반영하여 `source`를 `source_url`로 변경하고, 웹 문서에서 사용하지 않는 `page`를 제거하며, Citation에 검색 원문 `content`를 추가한다.<br>
+> 전제: 현재 서비스 검색은 Pinecone `aks-rag-v1` 인덱스의 `__default__` namespace에 적재된 v1 청크를 사용한다.
 
 ## 1. 문서 목적
 
-이 문서는 B·C가 준비한 검색 데이터, D의 생성 컴포넌트, E의 서비스 RAG Chain과 안전장치, F의 Streamlit 화면 사이에서 주고받을 데이터 형식을 정의한다.
+이 문서는 데이터 수집·이용조건 및 전처리·검색 데이터 담당이 준비한 검색 데이터, 생성·Prompt·Fine-tuning 담당의 생성 컴포넌트, RAG Chain·통합 평가 담당의 서비스 RAG Chain과 안전장치, UI·배포 담당의 Streamlit 화면 사이에서 주고받을 데이터 형식을 정의한다.
 
-D는 고정 검색 문맥을 사용해 Prompt Baseline과 Fine-tuning 후보를 비교하고, E는 선택된 생성 컴포넌트를 서비스 RAG Chain에 연결한다. 두 작업이 같은 입출력 계약을 사용하여 비교와 통합에 드는 시간을 줄이는 것이 목적이다.
+생성·Prompt·Fine-tuning 담당은 고정 검색 문맥을 사용해 Prompt Baseline과 Fine-tuning 후보를 비교하고, RAG Chain·통합 평가 담당은 선택된 생성 컴포넌트를 서비스 RAG Chain에 연결한다. 두 작업이 같은 입출력 계약을 사용하여 비교와 통합에 드는 시간을 줄이는 것이 목적이다.
 
-## 2. 0.2.0-draft의 주요 변경
+## 2. 0.3.0-draft의 주요 변경
 
-| 변경 항목 | 기존 0.1.0-draft | 변경 0.2.0-draft |
+| 변경 항목 | 기존 0.2.0-draft | 변경 0.3.0-draft |
 | :--- | :--- | :--- |
-| 응답 상태 | `candidate_answerable` + `candidate_refusal.code` | `candidate_response_type` |
-| 정상 답변 | `answerable=true` | `answered` |
-| 근거 부족 | `insufficient_context` | `insufficient_evidence` |
-| 모호한 질문 | 별도 상태 없음 | `needs_clarification` |
-| 잘못된 전제 | 별도 상태 없음 | `corrected_premise` |
-| 안전 거절 | `safety_restriction` | `safety_refusal` |
-| 사용자 메시지 | `draft_answer` | `draft_message` |
-| 대화 상태 | 대화 이력 제외 | 추가 질문 한 건을 위한 최소 상태만 추가 |
-| 시스템 오류 | 일부 거절 코드와 혼재 | 의미적 응답과 분리 |
+| 검색 문맥 URL | `source` | `source_url` |
+| 페이지 필드 | `page` 필수, 값이 없으면 `null` | 웹 문서 계약에서 제거 |
+| 결측값 | 원본 값을 별도로 정규화하지 않음 | `"NONE"`·빈 문자열은 `null`, 별칭 없음은 `[]` |
+| fingerprint | 별도 규칙 없음 | 식별·추적용 값으로만 사용, v1의 `chunking_fingerprint=null` 허용 |
+| Citation 본문 | 포함하지 않음 | 검색 결과에서 복사한 `content` 포함 |
+| 화면 출처 | 별도 연결 규칙 없음 | `source_url`은 UI의 `url`, UI의 `source`는 출처 표시명 |
+| 예시 데이터 | Mock 중심 | 실제 AKS 검색 결과를 기준으로 한 정규화 예시 추가 |
 
-코드명은 팀 합의 전까지 작업용 이름으로 사용한다.
+응답 유형 코드명은 `0.3.0-draft`의 작업 기준으로 사용하며, 보고서에는 각 코드의 의미를 함께 설명한다.
 
 ## 3. 설계 원칙
 
@@ -36,7 +34,7 @@ D는 고정 검색 문맥을 사용해 Prompt Baseline과 Fine-tuning 후보를 
 4. 검색 점수는 Vector DB에 따라 의미가 다를 수 있으므로 점수의 크기만으로 좋고 나쁨을 단정하지 않는다.
 5. 실제 표본 전에는 `MOCK-` 접두사가 붙은 값만 사용한다.
 6. 필드 변경 시 `schema_version`을 올리고 변경 이유를 기록한다.
-7. D의 생성 후보와 E의 서비스 RAG Chain은 아래 공통 계약으로 연결한다.
+7. 생성·Prompt·Fine-tuning 담당의 생성 후보와 RAG Chain·통합 평가 담당의 서비스 RAG Chain은 아래 공통 계약으로 연결한다.
 8. `needs_clarification`은 거절이 아니라 다음 사용자 입력을 기다리는 대화 상태로 취급한다.
 9. 의미적 응답 상태와 API·파싱·네트워크 오류를 분리한다.
 
@@ -45,42 +43,79 @@ D는 고정 검색 문맥을 사용해 Prompt Baseline과 Fine-tuning 후보를 
 ```text
 사용자 질문
     ↓
-E: 안전·서비스 범위 사전 판정
+RAG Chain·통합 평가 담당: 안전·서비스 범위 사전 판정
     ↓
-C: Retriever → list[RetrievedContext]
+전처리·검색 데이터 담당: Retriever → list[RetrievedContext]
     ↓
-E: 근거 충분성 판정·필요 시 재검색
+RAG Chain·통합 평가 담당: 근거 충분성 판정·필요 시 재검색
     ├─ insufficient → LLM 호출 없이 insufficient_evidence
     └─ sufficient
            ↓
-E: GenerationRequest 구성
+RAG Chain·통합 평가 담당: GenerationRequest 구성
            ↓
-D: Prompt → Model 후보 → Output Parser
+생성·Prompt·Fine-tuning 담당: Prompt → Model 후보 → Output Parser
            ↓
-E: 근거·안전 검증, 최종 response_type·출처 조립
+RAG Chain·통합 평가 담당: 근거·안전 검증, 최종 response_type·출처 조립
            ↓
-F: ServiceResponse 표시·최소 ClarificationContext 저장
+UI·배포 담당: ServiceResponse 표시·최소 ClarificationContext 저장
 ```
 
 ## 5. 검색 문맥 계약: `RetrievedContext`
 
-C가 반환하고 D·E가 공통으로 사용하는 검색 문서 한 건의 형식이다.
+전처리·검색 데이터 담당이 반환하고 생성·Prompt·Fine-tuning 담당과 RAG Chain·통합 평가 담당이 공통으로 사용하는 검색 문서 한 건의 형식이다.
 
 | 필드 | 자료형 | 필수 | 설명 | 담당 확인 |
 | :--- | :--- | :---: | :--- | :---: |
-| `chunk_id` | `str` | O | 검색 청크 고유 식별자 | C |
-| `document_id` | `str` | O | 원문 문서 식별자 | B·C |
-| `title` | `str` | O | 출처 제목 | B·C |
-| `content` | `str` | O | 생성에 제공할 청크 본문 | C |
-| `source` | `str` 또는 `null` | O | 원문 URL 또는 파일 경로, 없으면 `null` | B·C |
-| `page` | `int` 또는 `null` | O | 페이지 기반 자료의 원본 페이지, 없으면 `null` | B·C |
-| `section` | `str` 또는 `null` | O | 문서 안의 구역명 | B·C |
-| `retrieval_rank` | `int` | O | 검색 결과 순위, 1부터 시작 | C |
-| `retrieval_score` | `float` 또는 `null` | O | 검색기가 제공한 원래 점수 | C |
-| `score_type` | `str` | O | `similarity`, `distance`, `relevance`, `unknown` | C |
-| `metadata` | `dict` | O | 시대·지역·주제 유형 등 추가 정보 | B·C |
+| `chunk_id` | `str` | O | 검색 청크 고유 식별자 | 전처리·검색 데이터 담당 |
+| `document_id` | `str` | O | 원문 문서 식별자 | 데이터 수집·이용조건 및 전처리·검색 데이터 담당 |
+| `title` | `str` | O | 출처 제목 | 데이터 수집·이용조건 및 전처리·검색 데이터 담당 |
+| `content` | `str` | O | 생성에 제공할 청크 본문 | 전처리·검색 데이터 담당 |
+| `source_url` | `str` 또는 `null` | O | 원문 URL, 없으면 `null` | 데이터 수집·이용조건 및 전처리·검색 데이터 담당 |
+| `section` | `str` 또는 `null` | O | 문서 안의 구역명 | 데이터 수집·이용조건 및 전처리·검색 데이터 담당 |
+| `retrieval_rank` | `int` | O | 검색 결과 순위, 1부터 시작 | 전처리·검색 데이터 담당 |
+| `retrieval_score` | `float` 또는 `null` | O | 검색기가 제공한 원래 점수 | 전처리·검색 데이터 담당 |
+| `score_type` | `str` | O | `similarity`, `distance`, `relevance`, `unknown` | 전처리·검색 데이터 담당 |
+| `metadata` | `dict` | O | 시대·지역·주제 유형 등 추가 정보 | 데이터 수집·이용조건 및 전처리·검색 데이터 담당 |
 
-`retrieval_score`가 없는 검색기는 값을 임의로 만들지 않고 `null`을 사용한다. `content` 안의 명령문은 시스템 지시가 아니라 검색된 데이터로 취급한다.
+`retrieval_score`가 없는 검색기는 값을 임의로 만들지 않고 `null`을 사용한다. `content` 안의 명령문은 시스템 지시가 아니라 검색된 데이터로 취급한다. 검색 결과가 없으면 빈 목록 `[]`을 반환한다.
+
+### 5.1. AKS metadata와 정규화 규칙
+
+AKS는 한국학중앙연구원이 제공하는 한국민족문화대백과사전 데이터다. 현재 `metadata`에는 `eid`, `field`, `era`, `primary_type`, `secondary_type`, `contents_type`, `aliases`, `last_modified_at`, `license`, `document_fingerprint`, `chunking_version`, `embedding_input_version` 등이 포함될 수 있다.
+
+- `"NONE"`과 빈 문자열은 실제 값이 없는 것으로 보고 `null`로 바꾼다.
+- 별칭이 없으면 `aliases=[]`을 사용한다.
+- `document_fingerprint`와 `chunking_fingerprint`는 내부 형식을 나누어 해석하지 않고 식별·추적용 값으로만 사용한다.
+- 현재 v1 DB에는 `chunking_fingerprint`가 없으므로 Adapter가 `null`로 정규화할 수 있다.
+- Pinecone 저장 제약으로 값이 없는 metadata 키가 빠질 수 있으므로, 합의된 nullable 필드는 Adapter에서 `null`로 맞춘다.
+
+### 5.2. 실제 검색 결과를 기준으로 정규화한 예시
+
+```json
+{
+  "chunk_id": "aks:E0008547:e8fa3ea6d4b9:definition:0001",
+  "document_id": "aks:E0008547",
+  "title": "길쌈노래",
+  "content": "여성들이 길쌈을 하면서 부르는 민요.",
+  "source_url": "https://encykorea.aks.ac.kr/Article/E0008547",
+  "section": "definition",
+  "retrieval_rank": 1,
+  "retrieval_score": 0.663182139,
+  "score_type": "similarity",
+  "metadata": {
+    "eid": "E0008547",
+    "field": "문학/구비문학",
+    "era": "현대",
+    "primary_type": "작품/전통음악",
+    "secondary_type": null,
+    "contents_type": "작품/전통음악",
+    "aliases": ["길쌈노동요", "길쌈요"],
+    "last_modified_at": "2023-12-08T10:01:51.513",
+    "document_fingerprint": "e8fa3ea6d4b9",
+    "chunking_fingerprint": null
+  }
+}
+```
 
 ## 6. 생성 요청 계약: `GenerationRequest`
 
@@ -96,17 +131,17 @@ C가 반환하고 D·E가 공통으로 사용하는 검색 문서 한 건의 형
 | `grounding_decision` | `str` | O | `unchecked`, `sufficient`, `insufficient` |
 | `clarification_context` | `dict` 또는 `null` | O | 이전 추가 질문과 사용자 응답의 최소 상태 |
 
-`grounding_decision`은 E가 생성 전에 판단한다. 실제 서비스에서는 `sufficient` 또는 `insufficient`만 허용한다. `unchecked`는 D가 고정 Mock Context로 수행하는 오프라인 생성 실험에서만 사용할 수 있으며, 최종 `ServiceResponse`를 만드는 서비스 경로에서는 사용할 수 없다.
+`grounding_decision`은 RAG Chain·통합 평가 담당이 생성 전에 판단한다. 실제 서비스에서는 `sufficient` 또는 `insufficient`만 허용한다. `unchecked`는 생성·Prompt·Fine-tuning 담당이 고정 Mock Context로 수행하는 오프라인 생성 실험에서만 사용할 수 있으며, 최종 `ServiceResponse`를 만드는 서비스 경로에서는 사용할 수 없다.
 
 ### 6.1. `grounding_decision` 처리 규칙
 
 | 값 | 담당 | 처리 |
 | :--- | :---: | :--- |
-| `insufficient` | E | D의 생성 컴포넌트와 LLM을 호출하지 않고 `insufficient_evidence`로 종료 |
-| `sufficient` | E → D → E | D의 생성 컴포넌트를 호출하고 E가 결과를 최종 검증 |
-| `unchecked` | D 오프라인 실험 | 잠정 `GenerationResult`만 만들 수 있으며 서비스 응답으로 전환 금지 |
+| `insufficient` | RAG Chain·통합 평가 담당 | 생성 컴포넌트와 LLM을 호출하지 않고 `insufficient_evidence`로 종료 |
+| `sufficient` | RAG Chain·통합 평가 → 생성·Prompt·Fine-tuning → RAG Chain·통합 평가 담당 | 생성 컴포넌트를 호출하고 결과를 최종 검증 |
+| `unchecked` | 생성·Prompt·Fine-tuning 담당의 오프라인 실험 | 잠정 `GenerationResult`만 만들 수 있으며 서비스 응답으로 전환 금지 |
 
-E가 `sufficient`로 판정했지만 D가 `insufficient_evidence` 후보를 반환하면 E가 근거를 다시 확인한다. 실제 근거가 부족하면 최종 `insufficient_evidence`로 변경한다. 근거가 충분하면 생성을 한 번 재시도하고, 다시 실패하면 근거 부족이 아닌 `generation_error`로 기록한다.
+RAG Chain·통합 평가 담당이 `sufficient`로 판정했지만 생성 컴포넌트가 `insufficient_evidence` 후보를 반환하면 근거를 다시 확인한다. 실제 근거가 부족하면 최종 `insufficient_evidence`로 변경한다. 근거가 충분하면 생성을 한 번 재시도하고, 다시 실패하면 근거 부족이 아닌 `generation_error`로 기록한다.
 
 ### 6.2. `clarification_context` 형식
 
@@ -123,11 +158,11 @@ E가 `sufficient`로 판정했지만 D가 `insufficient_evidence` 후보를 반�
 
 전체 대화 이력을 저장하는 구조가 아니다. 해결되지 않은 질문 한 건을 처리하는 데 필요한 값만 보관한다.
 
-### 6.3. D의 오프라인 Mock 요청 예시
+### 6.3. 생성·Prompt·Fine-tuning 담당의 오프라인 Mock 요청 예시
 
 ```json
 {
-  "schema_version": "0.2.0-draft",
+  "schema_version": "0.3.0-draft",
   "request_id": "REQ-MOCK-001",
   "interaction_id": "INT-MOCK-001",
   "question": "그 궁궐은 언제 지어졌어?",
@@ -154,7 +189,7 @@ E가 `sufficient`로 판정했지만 D가 `insufficient_evidence` 후보를 반�
 
 ## 8. 생성 결과 계약: `GenerationResult`
 
-D의 생성 컴포넌트가 E에게 반환하는 내부 결과다. 아직 최종 사용자 응답은 아니다.
+생성·Prompt·Fine-tuning 담당의 생성 컴포넌트가 RAG Chain·통합 평가 담당에게 반환하는 내부 결과다. 아직 최종 사용자 응답은 아니다.
 
 | 필드 | 자료형 | 필수 | 설명 |
 | :--- | :--- | :---: | :--- |
@@ -227,7 +262,7 @@ D의 생성 컴포넌트가 E에게 반환하는 내부 결과다. 아직 최종
 
 ## 9. 서비스 응답 계약: `ServiceResponse`
 
-E가 검증을 마치고 F에게 전달하는 최종 응답이다. `citations`는 LLM이 생성한 문자열이 아니라 `used_chunk_ids`와 원본 검색 메타데이터를 연결하여 만든다.
+RAG Chain·통합 평가 담당이 검증을 마치고 UI·배포 담당에게 전달하는 최종 응답이다. `citations`는 LLM이 생성한 문자열이 아니라 `used_chunk_ids`와 같은 요청에서 검색한 `RetrievedContext`를 연결하여 만든다. Citation을 만들기 위해 Pinecone을 다시 조회하지 않는다.
 
 | 필드 | 자료형 | 필수 | 설명 |
 | :--- | :--- | :---: | :--- |
@@ -247,13 +282,43 @@ E가 검증을 마치고 F에게 전달하는 최종 응답이다. `citations`�
 
 ```json
 {
-  "chunk_id": "CHUNK-MOCK-001",
-  "document_id": "DOC-MOCK-001",
-  "title": "가상 문서",
-  "source": null,
-  "page": null,
-  "section": "개요",
-  "retrieval_rank": 1
+  "chunk_id": "aks:E0008547:e8fa3ea6d4b9:definition:0001",
+  "document_id": "aks:E0008547",
+  "title": "길쌈노래",
+  "source_url": "https://encykorea.aks.ac.kr/Article/E0008547",
+  "section": "definition",
+  "retrieval_rank": 1,
+  "content": "여성들이 길쌈을 하면서 부르는 민요."
+}
+```
+
+`content`와 출처 정보는 RAG Chain이 `used_chunk_ids`에 해당하는 `RetrievedContext`에서 그대로 복사한다. LLM은 Citation이나 근거 문장을 새로 작성하지 않는다. `source_url`은 UI의 `url`로 연결하고, 현재 AKS 데이터의 UI `source`는 출처 표시명인 `"한국민족문화대백과사전"`을 사용한다.
+
+### 9.2. 최종 `ServiceResponse` 예시
+
+```json
+{
+  "schema_version": "0.3.0-draft",
+  "request_id": "REQ-EXAMPLE-001",
+  "interaction_id": "INT-EXAMPLE-001",
+  "response_type": "answered",
+  "message": "길쌈노래는 여성들이 길쌈을 하면서 부르는 민요입니다.",
+  "audience_level": "general",
+  "citations": [
+    {
+      "chunk_id": "aks:E0008547:e8fa3ea6d4b9:definition:0001",
+      "document_id": "aks:E0008547",
+      "title": "길쌈노래",
+      "source_url": "https://encykorea.aks.ac.kr/Article/E0008547",
+      "section": "definition",
+      "retrieval_rank": 1,
+      "content": "여성들이 길쌈을 하면서 부르는 민요."
+    }
+  ],
+  "clarification": null,
+  "premise_correction": null,
+  "related_topics": [],
+  "warnings": []
 }
 ```
 
@@ -308,9 +373,9 @@ E가 검증을 마치고 F에게 전달하는 최종 응답이다. `citations`�
 → answered
 ```
 
-E는 안전·서비스 범위를 검색 전에 먼저 확인하고, 검색 후에는 근거 충분성과 잘못된 전제를 확인한다. D가 반환한 `candidate_response_type`은 잠정 결과이며 E가 검증한 `response_type`만 최종 결과로 사용한다.
+RAG Chain·통합 평가 담당은 안전·서비스 범위를 검색 전에 먼저 확인하고, 검색 후에는 근거 충분성과 잘못된 전제를 확인한다. 생성 컴포넌트가 반환한 `candidate_response_type`은 잠정 결과이며 RAG Chain 검증을 통과한 `response_type`만 최종 결과로 사용한다.
 
-서비스 경로에서 `grounding_decision=insufficient`이면 E가 LLM 호출 전에 종료한다. `sufficient`이면 D의 생성 컴포넌트를 호출한다. `unchecked`는 오프라인 실험 전용이므로 서비스 경로에서 발견되면 `invalid_request`로 처리한다.
+서비스 경로에서 `grounding_decision=insufficient`이면 RAG Chain·통합 평가 담당이 LLM 호출 전에 종료한다. `sufficient`이면 생성 컴포넌트를 호출한다. `unchecked`는 오프라인 실험 전용이므로 서비스 경로에서 발견되면 `invalid_request`로 처리한다.
 
 ## 13. 필수 검증 규칙
 
@@ -321,9 +386,9 @@ E는 안전·서비스 범위를 검색 전에 먼저 확인하고, 검색 후�
 3. `audience_level`은 `easy`, `general`, `advanced` 중 하나여야 한다.
 4. 입력의 `retrieved_contexts[*].chunk_id`로 허용 ID 집합을 만든다.
 5. `used_chunk_ids`, `premise_correction.source_chunk_ids`, `clarification.options[*].source_chunk_ids`, `related_topic_candidates[*].source_chunk_ids`의 모든 값은 허용 ID 집합의 부분집합이어야 한다.
-6. D의 Parser는 자료형·필수 필드·ID 존재 여부를 1차 검증하고, E는 사용자에게 제공하기 전에 같은 ID 규칙을 다시 검증한다.
+6. 생성 컴포넌트의 Parser는 자료형·필수 필드·ID 존재 여부를 1차 검증하고, RAG Chain·통합 평가 담당은 사용자에게 제공하기 전에 같은 ID 규칙을 다시 검증한다.
 7. 입력에 없는 ID가 하나라도 있으면 출처를 표시하지 않고 `generation_error`로 처리한다.
-8. 출처 제목·URL 또는 경로·페이지·구역은 검색 메타데이터에서 복사하고 LLM 출력에서 가져오지 않는다.
+8. 출처 제목·URL·구역·본문은 같은 요청의 검색 결과에서 복사하고 LLM 출력에서 가져오지 않는다.
 9. 스키마에 없는 필드는 구현 단계에서 기본적으로 거부하고, 필요한 경우 버전을 변경한다.
 
 ### 응답 유형별 규칙
@@ -348,6 +413,7 @@ E는 안전·서비스 범위를 검색 전에 먼저 확인하고, 검색 후�
 | 안전상 거절 | `safety_refusal` | 정상적인 안전 동작 |
 | 비어 있거나 파싱할 수 없는 입력 | `invalid_request` | 입력 검증 오류 |
 | 구조화 출력 파싱 실패 | `generation_error` | 생성·파서 오류 |
+| 검색 결과에 없는 청크 ID 참조 | `generation_error` | Citation을 만들거나 정상 `ServiceResponse`로 전달하지 않는 검증 오류 |
 | API·네트워크 장애 | `upstream_error` | 외부 호출 오류 |
 
 시스템 오류는 정상 거절률이나 답변 보류 정확도에 포함하지 않는다.
@@ -358,7 +424,7 @@ E는 안전·서비스 범위를 검색 전에 먼저 확인하고, 검색 후�
 
 ```json
 {
-  "schema_version": "0.2.0-draft",
+  "schema_version": "0.3.0-draft",
   "request_id": "REQ-MOCK-001",
   "interaction_id": "INT-MOCK-001",
   "candidate_response_type": "needs_clarification",
@@ -387,7 +453,7 @@ E는 안전·서비스 범위를 검색 전에 먼저 확인하고, 검색 후�
 
 ```json
 {
-  "schema_version": "0.2.0-draft",
+  "schema_version": "0.3.0-draft",
   "request_id": "REQ-MOCK-002",
   "interaction_id": "INT-MOCK-002",
   "candidate_response_type": "corrected_premise",
@@ -416,20 +482,20 @@ E는 안전·서비스 범위를 검색 전에 먼저 확인하고, 검색 후�
 
 | 번호 | 논의 항목 | 제안 | 협업 대상 | 확정 필요 시점 |
 | :---: | :--- | :--- | :---: | :--- |
-| S-01 | 검색 문맥 필드 | `chunk_id`, `document_id`, `content`, `source`, `page`, `section`을 공통 필수 필드로 사용하되 값이 없으면 `null` | B·C | 실제 표본 연결 전 |
-| S-02 | 검색 점수 표현 | 점수와 함께 `score_type`을 전달하고 임계값은 C·E가 결정 | C·E | 검색기 연결 전 |
-| S-03 | 근거 판정 전달 | 서비스에서는 E가 `sufficient/insufficient`를 확정하고 `unchecked`는 D의 오프라인 실험에만 사용 | D·E | 리뷰 대응안 확정 |
-| S-04 | 설명 수준 | 내부 코드는 `easy/general/advanced`, UI 문구는 `쉽게/일반/깊이 있게` | D·F·팀 | UI·Prompt 확정 전 |
-| S-05 | 출처 구성 | D는 `used_chunk_ids`만 반환하고 E가 출처 메타데이터를 연결 | C·D·E | 통합 구현 전 |
-| S-06 | 서비스 응답 필드 | F가 필요한 필드와 표시하지 않을 내부 필드를 구분 | E·F | UI 실제 연결 전 |
-| S-07 | 연관 항목 | MVP 포함 여부와 표시 형태를 팀에서 결정 | A·D·E·F | 생성 코드 구현 전 |
-| S-08 | 오류 책임 | 생성·파싱 오류는 D가 1차 기록하고 E가 서비스 오류로 분류, Chain·외부 호출 오류는 E가 기록 | D·E | 통합 테스트 전 |
-| S-09 | 응답 유형 코드명 | 여섯 개 `response_type` 이름과 의미 확정 | D·E·F·팀 | Prompt·UI 확정 전 |
-| S-10 | 추가 질문 상태 | `interaction_id`와 최소 `ClarificationContext` 저장 위치 결정 | A·D·E·F | 생성 코드 구현 전 |
-| S-11 | 모호함 판정 | 네 가지 판정 조건과 추가 질문 1회 제한 검토 | D·E·팀 | Prompt·평가 확정 전 |
-| S-12 | 잘못된 전제 정정 | `corrected_premise`의 UI 표시와 평가 방법 결정 | D·E·F | UI·평가 확정 전 |
+| S-01 | 검색 문맥 필드 | `source_url`을 사용하고 웹 문서의 `page`는 제거하며 결측값을 정규화 | 데이터 수집·이용조건 및 전처리·검색 데이터 담당 | 합의 완료 |
+| S-02 | 검색 점수 표현 | 점수와 함께 `score_type`을 전달하고 임계값은 실제 결과로 결정 | 전처리·검색 데이터, RAG Chain·통합 평가 담당 | 검색 점수 실험 전 |
+| S-03 | 근거 판정 전달 | 서비스에서는 RAG Chain·통합 평가 담당이 `sufficient/insufficient`를 확정하고 `unchecked`는 오프라인 생성 실험에만 사용 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 | 리뷰 대응안 확정 |
+| S-04 | 설명 수준 | 내부 코드는 `easy/general/advanced`, UI 문구는 `쉽게/일반/깊이 있게` | 생성·Prompt·Fine-tuning, UI·배포 담당과 팀 | UI·Prompt 확정 전 |
+| S-05 | 출처 구성 | 생성 컴포넌트는 `used_chunk_ids`만 반환하고 RAG Chain이 같은 요청의 검색 결과로 Citation과 `content`를 조립 | 전처리·검색 데이터, 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 | 합의 완료 |
+| S-06 | 서비스 응답 필드 | RAG의 `source_url`을 UI `url`로 연결하고 UI `source`는 출처 표시명 사용 | RAG Chain·통합 평가, UI·배포 담당 | 합의 완료 |
+| S-07 | 연관 항목 | MVP 포함 여부와 표시 형태를 팀에서 결정 | 프로젝트 관리·팀 의사결정, 생성·Prompt·Fine-tuning, RAG Chain·통합 평가, UI·배포 담당 | 생성 코드 구현 전 |
+| S-08 | 오류 책임 | 생성·파싱 오류는 생성 담당이 1차 기록하고 RAG 담당이 서비스 오류로 분류하며, Chain·외부 호출 오류는 RAG 담당이 기록 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당 | 통합 테스트 전 |
+| S-09 | 응답 유형 코드명 | 여섯 개 `response_type` 이름과 의미를 사용하고 보고서에 용어 설명 포함 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가, UI·배포 담당과 팀 | 합의 완료 |
+| S-10 | 추가 질문 상태 | `interaction_id`와 최소 `ClarificationContext` 저장 위치 결정 | 프로젝트 관리·팀 의사결정, 생성·Prompt·Fine-tuning, RAG Chain·통합 평가, UI·배포 담당 | 생성 코드 구현 전 |
+| S-11 | 모호함 판정 | 네 가지 판정 조건과 추가 질문 1회 제한 검토 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가 담당과 팀 | Prompt·평가 확정 전 |
+| S-12 | 잘못된 전제 정정 | `corrected_premise`의 UI 표시와 평가 방법 결정 | 생성·Prompt·Fine-tuning, RAG Chain·통합 평가, UI·배포 담당 | UI·평가 확정 전 |
 
-팀원 협의 전에도 이 문서를 `0.2.0-draft` 작업 계약으로 사용해 각자 후보를 만들 수 있다. 다만 실제 통합이나 성능 비교 전에 관련 항목을 확인하고, 합의 결과가 달라지면 스키마 버전을 변경한다.
+S-01, S-05, S-06과 여섯 가지 응답 유형은 실제 표본과 담당자 회신을 바탕으로 `0.3.0-draft`에 반영했다. 검색 점수 임계값, `top_k`, 같은 문서의 청크 선택 수와 평가 질문 수는 스키마 필드가 아니라 실제 검색 결과를 이용한 후속 실험에서 결정한다. 나머지 항목은 해당 구현 시점 전에 확인하고, 계약 필드가 달라지면 스키마 버전을 다시 변경한다.
 
 ## 17. 이번 변경의 승인 항목
 
@@ -442,10 +508,13 @@ E는 안전·서비스 범위를 검색 전에 먼저 확인하고, 검색 후�
 - 전체 대화 이력 대신 최소 `ClarificationContext`만 저장
 - `corrected_premise`의 정정 내용과 근거 연결
 - 의미적 응답과 시스템 오류의 분리
-- `grounding_decision`별 호출·종료 규칙과 D/E 판정 불일치 처리
+- `grounding_decision`별 호출·종료 규칙과 생성 단계/RAG 검증 단계의 판정 불일치 처리
 - 모든 중첩 `source_chunk_ids`의 허용 ID 부분집합 검증
-- 기존 데이터 문서에 맞춘 `source`·`page`·`section` 메타데이터
-- D의 오프라인 생성 비교와 E의 서비스 RAG Chain 역할 구분
-- 실제 코드 구현 전 S-09~S-12를 팀과 확인하는 원칙
+- 실제 AKS 검색 결과에 맞춘 `source_url`·`section` 및 metadata 정규화
+- v1의 `chunking_fingerprint=null` 허용과 fingerprint를 식별·추적용으로만 사용하는 원칙
+- LLM이 아닌 RAG Chain이 `used_chunk_ids`를 검증하고 Citation과 `content`를 조립하는 구조
+- RAG `source_url`과 UI의 `url`·`source` 표시 연결 규칙
+- 생성·Prompt·Fine-tuning 담당의 오프라인 생성 비교와 RAG Chain·통합 평가 담당의 서비스 RAG Chain 역할 구분
+- 남아 있는 협업 항목을 해당 구현·평가 시점 전에 확인하는 원칙
 
-이 문서의 `0.2.0-draft`를 현재 작업 기준 규격으로 사용하며, 3단계 Prompt Baseline도 같은 규격으로 동기화한다. 재검토에서 변경 요청이 발생하면 스키마 버전과 변경 내역을 함께 갱신한다.
+이 문서의 `0.3.0-draft`를 현재 작업 기준 규격으로 사용하며, 3단계 Prompt Baseline도 같은 규격으로 동기화한다. 전처리·검색 데이터 담당은 Retriever Adapter와 테스트를, RAG Chain·통합 평가 담당은 RAG Chain·ServiceResponse를 이 계약에 맞춰 반영한다. 재검토에서 계약 변경 요청이 발생하면 스키마 버전과 변경 내역을 함께 갱신한다.

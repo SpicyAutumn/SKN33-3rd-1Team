@@ -65,7 +65,7 @@ Windows PowerShell 5.1은 BOM 없는 UTF-8 파일을 기본 인코딩으로 읽�
 .\.venv\Scripts\python.exe scripts\search_aks.py "ㄱ당은 어떤 단체야?" --top-k 3
 ```
 
-정상이라면 첫 결과의 `title`은 `ㄱ당`, `retrieval_rank`는 `1`, `source`는 `https://encykorea.aks.ac.kr/Article/E0000003`, `page`는 `null`이다.
+정상이라면 첫 결과의 `title`은 `ㄱ당`, `retrieval_rank`는 `1`, `source_url`은 `https://encykorea.aks.ac.kr/Article/E0000003`이다. V1 인덱스에 없는 `metadata.chunking_fingerprint`는 `null`로 정규화하며, 웹 문서에는 쓰지 않는 `page` 필드는 반환하지 않는다.
 
 검색 결과는 RAG 담당자가 바로 사용할 `RetrievedContext` 형식이다. 필드 정의와 실제 상위 3건 예시는 [retrieved_context_contract.md](retrieved_context_contract.md)에 있다.
 

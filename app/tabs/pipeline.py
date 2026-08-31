@@ -70,9 +70,9 @@ def render() -> None:
     contexts = result.get("retrieved_contexts", [])
     used_ids = set(result.get("used_chunk_ids", []))
     scores = [s for s in (_score(c) for c in contexts) if s is not None]
-    passed = [c for c in contexts if (_score(c) or 1.0) >= retrieval.EVIDENCE_MIN_SCORE]
+    passed = [c for c in contexts if retrieval.meets_threshold(c)]
     dropped = len(contexts) - len(passed)
-    documents = {c.get("document_id") for c in contexts if c.get("document_id")}
+    documents = {c.get("document_id") for c in passed if c.get("document_id")}
 
     _render_flow(result, response, contexts, used_ids, scores, passed, dropped, documents)
     _render_traceback(contexts, used_ids)
@@ -100,7 +100,7 @@ def _render_flow(result, response, contexts, used_ids, scores, passed, dropped, 
             3,
             "<span class='process-note'>화면에는 보이지 않는 단계입니다.</span>",
             f"기준선 <b>{retrieval.EVIDENCE_MIN_SCORE:.2f}</b> 미만은 근거로 쓰지 않습니다."
-            f"<br><span class='process-note'>통과 {len(passed)}건 · 탈락 {dropped}건 · 서로 다른 문서 {len(documents)}개</span>",
+            f"<br><span class='process-note'>통과 {len(passed)}건 · 탈락 {dropped}건 · 통과한 조각이 나온 문서 {len(documents)}개</span>",
         ),
     ]
 

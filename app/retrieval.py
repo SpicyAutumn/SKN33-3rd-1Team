@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import rag_client
-from rag_client import is_live, missing_env  # noqa: F401 - 화면에서 그대로 사용한다
+from rag_client import is_live, meets_threshold, missing_env  # noqa: F401 - 화면에서 그대로 사용한다
 
 REQUIRED_ENV = rag_client.REQUIRED_ENV
 SOURCE_NAME = "한국민족문화대백과사전"

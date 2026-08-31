@@ -85,6 +85,23 @@ class EvidenceSelectionTest(unittest.TestCase):
         self.assertEqual([p["document_id"] for p in picked], ["d1", "d2", "d3"])
 
 
+class ThresholdTest(unittest.TestCase):
+    """기준선 판정은 한 함수만 쓴다. 화면과 근거 선택이 같은 결과를 내야 한다."""
+
+    def test_score_above_or_equal_passes(self):
+        self.assertTrue(rag_client.meets_threshold(context(chunk_id="c", document_id="d", title="A", score=0.41)))
+        self.assertTrue(rag_client.meets_threshold(context(chunk_id="c", document_id="d", title="A", score=0.40)))
+
+    def test_score_below_fails(self):
+        self.assertFalse(rag_client.meets_threshold(context(chunk_id="c", document_id="d", title="A", score=0.38)))
+
+    def test_zero_score_is_a_real_score_and_fails(self):
+        self.assertFalse(rag_client.meets_threshold(context(chunk_id="c", document_id="d", title="A", score=0.0)))
+
+    def test_missing_score_passes_as_undecidable(self):
+        self.assertTrue(rag_client.meets_threshold(context(chunk_id="c", document_id="d", title="A", score=None)))
+
+
 class EvidenceCheckerTest(unittest.TestCase):
     def setUp(self):
         self.checker = rag_client.ScoreEvidenceChecker(min_score=0.40)
@@ -150,6 +167,24 @@ class GeneratorContractTest(unittest.TestCase):
         result = rag_client.EvidencePassthroughGenerator().invoke(self.request(contexts, "easy"))
         self.assertTrue(set(result["used_chunk_ids"]).issubset({c["chunk_id"] for c in contexts}))
         self.assertEqual(result["audience_level"], "easy")
+
+    def test_below_threshold_chunks_are_not_used_as_evidence(self):
+        """통과·미달이 섞여 있어도 미달 조각은 근거가 되지 않는다."""
+        contexts = [
+            context(chunk_id="pass", document_id="d1", title="통과", score=0.41, rank=1),
+            context(chunk_id="drop1", document_id="d2", title="미달", score=0.38, rank=2),
+            context(chunk_id="drop2", document_id="d3", title="미달", score=0.30, rank=3),
+        ]
+        result = rag_client.EvidencePassthroughGenerator().invoke(self.request(contexts))
+        self.assertEqual(result["used_chunk_ids"], ["pass"])
+
+    def test_all_below_threshold_yields_no_evidence(self):
+        contexts = [
+            context(chunk_id="c1", document_id="d1", title="A", score=0.38),
+            context(chunk_id="c2", document_id="d2", title="B", score=0.30),
+        ]
+        result = rag_client.EvidencePassthroughGenerator().invoke(self.request(contexts))
+        self.assertEqual(result["used_chunk_ids"], [])
 
     def test_blank_content_is_not_used_as_evidence(self):
         contexts = [

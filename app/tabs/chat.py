@@ -93,16 +93,14 @@ def _run(question: str, audience_level: str, *, live: bool) -> None:
         "retrieval_top_k": execution.get("retrieval_top_k"),
         "related_keywords": response.get("related_topics", []),
     }
+    # ServiceResponse에는 retrieved_contexts가 없다. 실제 검색 결과는 실행 추적에서 읽는다.
+    contexts = execution.get("retrieved_contexts", [])
     history = st.session_state.setdefault("question_history", [])
     history.append(
         {
             "question": question,
             "title": next(
-                (
-                    context.get("title")
-                    for context in response.get("retrieved_contexts", [])
-                    if context.get("title")
-                ),
+                (context.get("title") for context in contexts if context.get("title")),
                 "검색 결과 없음",
             ),
         }

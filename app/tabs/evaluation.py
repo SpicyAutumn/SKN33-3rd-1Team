@@ -67,7 +67,7 @@ def _render_retrieval_quality(contexts: list[dict], used: set[str]) -> None:
         return
 
     scores = [s for s in (_score(c) for c in contexts) if s is not None]
-    passed = [c for c in contexts if (_score(c) or 1.0) >= retrieval.EVIDENCE_MIN_SCORE]
+    passed = [c for c in contexts if retrieval.meets_threshold(c)]
     documents = {c.get("document_id") for c in contexts if c.get("document_id")}
 
     columns = st.columns(4)
@@ -79,11 +79,11 @@ def _render_retrieval_quality(contexts: list[dict], used: set[str]) -> None:
         delta_color="off",
     )
     columns[2].metric(
-        "서로 다른 문서",
+        "검색된 문서",
         f"{len(documents)}개",
         delta="중복 있음" if len(documents) < len(contexts) else "중복 없음",
         delta_color="off",
-        help="조각은 여러 개여도 실제로 본 문서는 이 개수입니다.",
+        help="검색된 조각 전체가 몇 개 문서에서 나왔는지입니다. 기준선 통과 여부와 무관합니다.",
     )
     columns[3].metric(
         "최고 유사도",
@@ -108,7 +108,7 @@ def _render_score_bars(contexts: list[dict], used: set[str]) -> None:
     for context in contexts:
         score = _score(context)
         is_used = context.get("chunk_id") in used
-        passes = (score if score is not None else 1.0) >= retrieval.EVIDENCE_MIN_SCORE
+        passes = retrieval.meets_threshold(context)
         width = (score / ceiling * 100) if score is not None else 0.0
         state = "used" if is_used else ("pass" if passes else "drop")
         label = "답변에 사용" if is_used else ("기준선 통과" if passes else "기준선 미달")

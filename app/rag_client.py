@@ -59,6 +59,17 @@ def _score(context: dict[str, Any]) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
+def meets_threshold(context: dict[str, Any], min_score: float = TEMP_EVIDENCE_MIN_SCORE) -> bool:
+    """기준선 판정 한 곳.
+
+    점수를 제공하지 않는 검색기도 있으므로 `None`은 판단 불가로 보고 통과시킨다.
+    `0.0`은 실제 점수이므로 `or` 대신 `is None`으로 구분한다.
+    화면·근거 판정·근거 선택이 모두 이 함수를 쓴다.
+    """
+    score = _score(context)
+    return score is None or score >= min_score
+
+
 def pick_documents(contexts: list[dict[str, Any]], limit: int = EVIDENCE_DOCUMENT_LIMIT) -> list[dict[str, Any]]:
     """서로 다른 문서를 순위 순으로 고른다. 같은 문서의 조각은 앞선 하나만 쓴다."""
     picked: list[dict[str, Any]] = []
@@ -85,11 +96,7 @@ class ScoreEvidenceChecker:
         self.min_score = min_score
 
     def decide(self, question: str, contexts: list[dict[str, Any]]) -> str:
-        for context in contexts:
-            score = _score(context)
-            if score is None or score >= self.min_score:
-                return "sufficient"
-        return "insufficient"
+        return "sufficient" if any(meets_threshold(c, self.min_score) for c in contexts) else "insufficient"
 
 
 class EvidencePassthroughGenerator:
@@ -101,7 +108,9 @@ class EvidencePassthroughGenerator:
 
     def invoke(self, request: dict[str, Any]) -> dict[str, Any]:
         contexts = request["retrieved_contexts"]
-        picked = pick_documents([c for c in contexts if str(c.get("content", "")).strip()])
+        # 근거 판정이 통과시킨 검색이라도, 기준선에 못 미치는 개별 조각은 근거로 쓰지 않는다.
+        usable = [c for c in contexts if str(c.get("content", "")).strip() and meets_threshold(c)]
+        picked = pick_documents(usable)
         message = (
             f"검색으로 찾은 근거 {len(picked)}건입니다. "
             "답변 문장 생성은 아직 연결되지 않아 검색된 원문을 그대로 보여 드립니다. "

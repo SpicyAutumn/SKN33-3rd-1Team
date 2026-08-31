@@ -72,21 +72,6 @@ def is_live() -> bool:
     return not missing_env()
 
 
-def normalize_context(context: dict) -> dict:
-    """검색 결과를 계약 0.3.0-draft 형식으로 맞춘다.
-
-    [제거 예정] `pinecone_store.search()`가 0.3.0에 맞게 수정되면 이 함수는
-    그대로 통과만 시키게 되므로 호출부에서 빼면 된다.
-    현재 `search()`는 `source`를 반환하고 `page`를 아직 포함한다.
-    """
-    normalized = dict(context)
-    if "source_url" not in normalized:
-        normalized["source_url"] = normalized.get("source")
-    normalized.pop("source", None)
-    normalized.pop("page", None)
-    return normalized
-
-
 def search(question: str, top_k: int = 5) -> list[dict]:
     """실제 Pinecone 검색. 키가 없으면 RuntimeError."""
     absent = missing_env()
@@ -95,8 +80,7 @@ def search(question: str, top_k: int = 5) -> list[dict]:
 
     from rag_indexing.pinecone_store import PineconeRetriever
 
-    results = PineconeRetriever().search(question, top_k=top_k)
-    return [normalize_context(item) for item in results]
+    return PineconeRetriever().search(question, top_k=top_k)
 
 
 def _score_of(context: dict) -> float:

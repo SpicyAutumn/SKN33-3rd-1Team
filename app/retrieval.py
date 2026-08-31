@@ -32,6 +32,12 @@ DEFAULT_AUDIENCE_LEVEL = "general"
 # 값 근거: 범위 안 질문 최저 0.440, 범위 밖 질문 최고 0.335 (2026-08-31 실측)
 SCORE_THRESHOLD = 0.40
 
+# 답변 생성이 붙기 전까지 몇 건을 근거로 보여 줄지. 1위 하나만 고르면 검색 순위가
+# 뒤집혔을 때 틀린 문서 하나로 출처·지도·평가가 모두 어긋난다. 서로 다른 문서를
+# 이만큼 보여 주고 판단은 사람에게 맡긴다.
+# [제거 예정] 생성이 연결되면 used_chunk_ids는 생성 결과가 정한다.
+EVIDENCE_DOCUMENT_LIMIT = 3
+
 
 def shift_level(level: str, step: int) -> str:
     """설명 수준을 한 단계 옮긴다. 양 끝에서는 그대로 둔다."""
@@ -125,14 +131,26 @@ def build_response(
             "premise_correction": None,
         }
 
-    used = [strong[0]["chunk_id"]]
-    citations = [item for item in strong if item["chunk_id"] in used]
+    # 같은 문서의 여러 조각 중 순위가 앞선 하나씩만, 최대 EVIDENCE_DOCUMENT_LIMIT개 문서.
+    picked: list[dict] = []
+    seen_documents: set[str] = set()
+    for item in strong:
+        key = item.get("document_id") or item["chunk_id"]
+        if key in seen_documents:
+            continue
+        seen_documents.add(key)
+        picked.append(item)
+        if len(picked) >= EVIDENCE_DOCUMENT_LIMIT:
+            break
+    used = [item["chunk_id"] for item in picked]
+    citations = list(picked)
     return {
         "response_type": "answered",
         "audience_level": audience_level,
         "message": (
-            "아래 근거를 실제 검색으로 찾았습니다. "
-            "답변 문장 생성은 아직 연결되지 않아 검색된 원문을 그대로 보여 드립니다."
+            f"검색으로 찾은 근거 {len(picked)}건입니다. "
+            "답변 문장 생성은 아직 연결되지 않아 검색된 원문을 그대로 보여 드립니다. "
+            "어느 자료가 질문에 맞는지 직접 확인해 주세요."
         ),
         "retrieved_contexts": contexts,
         "used_chunk_ids": used,

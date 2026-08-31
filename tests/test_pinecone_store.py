@@ -204,6 +204,39 @@ class PineconeStoreTests(unittest.TestCase):
         self.assertIsNone(result["metadata"]["secondary_type"])
         self.assertIsNone(result["metadata"]["chunking_fingerprint"])
 
+    def test_search_rejects_missing_required_text_instead_of_returning_string_none(self) -> None:
+        class FakeIndex:
+            def __init__(self, field_name: str, value: object) -> None:
+                self.field_name = field_name
+                self.value = value
+
+            def query(self, **_: object) -> dict[str, object]:
+                metadata: dict[str, object] = {
+                    "document_id": "aks:E0008547",
+                    "title": "길쌈노래",
+                    "content": "여성들이 길쌈을 하면서 부르는 민요.",
+                    "source": "https://encykorea.aks.ac.kr/Article/E0008547",
+                    "section": "definition",
+                }
+                metadata[self.field_name] = self.value
+                return {"matches": [{"id": "invalid-required-value", "metadata": metadata}]}
+
+        for field_name, value in (
+            ("document_id", ""),
+            ("title", "NONE"),
+            ("title", ""),
+            ("content", "NONE"),
+            ("content", ""),
+        ):
+            with self.subTest(field_name=field_name, value=value):
+                retriever = object.__new__(PineconeRetriever)
+                retriever._embed = lambda _: [[0.1, 0.2]]
+                retriever._index = FakeIndex(field_name, value)
+                retriever.namespace = ""
+
+                with self.assertRaisesRegex(ValueError, rf"metadata\.{field_name} must be a non-empty string"):
+                    retriever.search("길쌈노래는 무엇이야?", top_k=3)
+
     def test_resume_skips_only_matching_chunking_identity(self) -> None:
         chunk = build_chunks([PAYLOAD])[0]
 

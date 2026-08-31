@@ -31,7 +31,7 @@
 
 - `chunk_id`: `aks:{eid}:{document_fingerprint}:{chunking_fingerprint}:{section}:{ordinal}`. 동일 원문과 동일 정제/청킹 설정이면 재실행해도 동일하며, 청킹 설정이 바뀌면 다른 ID가 생성됩니다.
 - `content`: `definition`과 `body`를 섞지 않고 각각 청킹합니다. 임베딩 시에는 제목·section을 별도로 앞에 붙이되, 인용할 `content`는 원문 근거만 보존합니다.
-- 필수 값이 없으면 필드를 삭제하거나 빈 문자열을 사용하지 않고 `null`을 사용합니다. `metadata` 내부의 선택 필드도 `null`을 허용합니다.
+- `source_url`, `section`과 `metadata` 내부의 선택 필드는 값이 없으면 빈 문자열 대신 `null`을 사용합니다. 반면 검색 반환의 `document_id`, `title`, `content`는 필수 문자열이므로 빈 문자열·`"NONE"`·`null`이면 Retriever 계약 오류로 처리하며 문자열 `"None"`으로 바꾸지 않습니다.
 
 ## 검색 반환 형식
 

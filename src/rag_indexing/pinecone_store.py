@@ -58,6 +58,14 @@ def _nullable_text(value: Any) -> str | None:
     return cleaned if cleaned and cleaned.upper() != "NONE" else None
 
 
+def _required_metadata_text(metadata: dict[str, Any], field_name: str) -> str:
+    """Read a mandatory RetrievedContext value without producing the string ``"None"``."""
+    value = _nullable_text(metadata.pop(field_name, None))
+    if value is None:
+        raise ValueError(f"Pinecone metadata.{field_name} must be a non-empty string")
+    return value
+
+
 def _normalize_v1_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     """Make legacy v1 vector metadata safe for the shared RetrievedContext contract.
 
@@ -213,9 +221,9 @@ class PineconeRetriever:
             contexts.append(
                 {
                     "chunk_id": str(chunk_id),
-                    "document_id": str(metadata.pop("document_id", "")),
-                    "title": str(metadata.pop("title", "")),
-                    "content": str(metadata.pop("content", "")),
+                    "document_id": _required_metadata_text(metadata, "document_id"),
+                    "title": _required_metadata_text(metadata, "title"),
+                    "content": _required_metadata_text(metadata, "content"),
                     "source_url": source_url,
                     "section": _nullable_text(metadata.pop("section", None)),
                     "retrieval_rank": rank,

@@ -27,6 +27,11 @@ AUDIENCE_LEVELS = ("easy", "general", "advanced")
 AUDIENCE_LABELS = {"easy": "쉽게 설명", "general": "일반 설명", "advanced": "깊이 있게"}
 DEFAULT_AUDIENCE_LEVEL = "general"
 
+# [제거 예정] 근거 충분성 판정은 계약상 RAG Chain 책임이다.
+# RAG Chain에 grounding_decision이 들어오면 이 임시 방어를 걷어낸다.
+# 값 근거: 범위 안 질문 최저 0.440, 범위 밖 질문 최고 0.335 (2026-08-31 실측)
+SCORE_THRESHOLD = 0.40
+
 
 def shift_level(level: str, step: int) -> str:
     """설명 수준을 한 단계 옮긴다. 양 끝에서는 그대로 둔다."""
@@ -88,15 +93,22 @@ def search(question: str, top_k: int = 5) -> list[dict]:
     return [normalize_context(item) for item in results]
 
 
+def _score_of(context: dict) -> float:
+    """점수가 없으면 판단 불가로 보고 통과시킨다."""
+    score = context.get("retrieval_score")
+    return float(score) if isinstance(score, (int, float)) else 1.0
+
+
 def build_response(
     question: str, contexts: list[dict], audience_level: str = DEFAULT_AUDIENCE_LEVEL
 ) -> dict:
     """검색 결과로 ServiceResponse를 조립한다.
 
     답변 생성(Track B)이 아직 없으므로 문장을 지어내지 않는다.
-    근거가 있으면 근거만 보여주고, 없으면 보류로 처리한다.
+    유사도가 기준에 못 미치면 근거로 쓰지 않고 보류한다.
     """
-    if not contexts:
+    strong = [c for c in contexts if _score_of(c) >= SCORE_THRESHOLD]
+    if not strong:
         return {
             "response_type": "insufficient_evidence",
             "audience_level": audience_level,
@@ -104,7 +116,8 @@ def build_response(
                 "현재 검색된 공식 자료만으로는 이 질문을 확인하기 어렵습니다. "
                 "확인 가능한 다른 문화유산 관련 질문을 해 주세요."
             ),
-            "retrieved_contexts": [],
+            # 걸러낸 결과도 그대로 넘겨 "답변 과정" 탭에서 왜 보류했는지 보이게 한다.
+            "retrieved_contexts": contexts,
             "used_chunk_ids": [],
             "related_keywords": [],
             "citations": [],
@@ -112,8 +125,8 @@ def build_response(
             "premise_correction": None,
         }
 
-    used = [contexts[0]["chunk_id"]]
-    citations = [item for item in contexts if item["chunk_id"] in used]
+    used = [strong[0]["chunk_id"]]
+    citations = [item for item in strong if item["chunk_id"] in used]
     return {
         "response_type": "answered",
         "audience_level": audience_level,

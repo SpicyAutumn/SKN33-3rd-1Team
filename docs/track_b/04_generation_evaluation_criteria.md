@@ -76,9 +76,19 @@ missing
 → 현재 조건으로 공식 Baseline 새로 실행
 ```
 
-## 4. 비교 시 고정할 조건
+## 4. 비교 실험과 고정 조건
 
-Prompt Baseline과 Fine-tuning 후보는 다음 조건을 동일하게 유지한다.
+비교 목적에 따라 한 번에 한 가지 요소만 변경한다.
+
+| 실험 | 변경할 요소 | 고정할 요소 | 결과 해석 |
+| :--- | :--- | :--- | :--- |
+| Prompt 개선 | Prompt 버전 | 모델·질문·문맥·추론 설정·Parser | Prompt 변경 효과 |
+| Fine-tuning 효과 | Fine-tuning 적용 여부 | 동일한 기반 모델·Prompt·질문·문맥·추론 설정·Parser | Fine-tuning 효과 |
+| 기반 모델 비교 | 기반 모델 | Prompt·질문·문맥·추론 설정·Parser | 별도 모델 후보 비교 |
+
+기반 모델과 Prompt를 동시에 바꾼 결과는 Fine-tuning 효과로 해석하지 않는다. 기반 모델이 다르면 Fine-tuning 여부와 관계없이 별도 모델 비교로 기록한다.
+
+모든 비교에서 다음 조건을 기록하고, 실험 목적상 변경하는 항목을 제외한 나머지는 동일하게 유지한다.
 
 - 질문
 - `audience_level`
@@ -90,24 +100,56 @@ Prompt Baseline과 Fine-tuning 후보는 다음 조건을 동일하게 유지한
 - 평가 기준
 - 평가용 LLM 설정
 
-비교할 때에는 원칙적으로 모델만 변경한다.
+### 4.1. 변경 불가능한 문맥 스냅샷
 
-각 평가 입력에는 검색 문맥 원문 또는 문맥을 식별할 수 있는 스냅샷 ID를 기록한다. 검색 DB가 변경되어도 과거와 동일한 조건으로 결과를 다시 확인할 수 있어야 한다.
+공식 비교에는 실제 문맥과 순서를 그대로 재현할 수 있는 `RetrievedContext` 스냅샷을 사용한다. 기존 스냅샷을 덮어쓰지 않고 검색 데이터나 설정이 달라지면 새 버전을 만든다.
+
+스냅샷에는 최소한 다음 정보를 기록한다.
+
+- `context_snapshot_id`
+- `case_id`와 질문
+- 검색 당시 `top_k`
+- 순서를 유지한 `RetrievedContext` 전체 목록
+- 인덱스와 namespace
+- 생성 시점
+- 파일 체크섬
+
+검색 DB가 변경되어도 스냅샷을 입력으로 사용하면 과거와 동일한 조건으로 생성 결과를 다시 비교할 수 있어야 한다.
 
 ## 5. 자동 필수 검사
 
-모든 결과에 대해 다음 검사를 먼저 수행한다.
+자동 검사는 LLM이 직접 반환한 원본과 실행 코드가 조립한 전체 결과를 구분한다. Parser가 재시도하거나 보정한 경우에도 첫 원본의 실패 여부와 최종 결과를 모두 기록한다.
+
+### 5.1. LLM 원본 출력 검사
+
+LLM이 직접 생성하는 다음 필드를 검사한다.
+
+- `candidate_response_type`
+- `draft_message`
+- `used_chunk_ids`
+- `clarification`
+- `premise_correction`
+- `related_topic_candidates`
 
 | 검사 항목 | 통과 기준 |
 | :--- | :--- |
 | JSON | JSON 객체 하나로 정상 파싱 |
-| 필수 필드 | `GenerationResult` 계약과 일치 |
+| 원본 필드 | LLM이 생성해야 할 여섯 필드가 모두 있음 |
 | 자료형 | 문자열·배열·`null` 형식이 계약과 일치 |
 | 응답 유형 | 승인된 여섯 가지 값 중 하나 |
 | 청크 ID | 입력 문맥에 존재하는 ID만 사용 |
 | 응답별 규칙 | 응답 유형별 `used_chunk_ids` 규칙 준수 |
+
+### 5.2. 전체 `GenerationResult` 검사
+
+실행 코드가 요청과 실제 실행 정보에서 가져온 값을 결합한 뒤 전체 계약을 검사한다.
+
+| 검사 항목 | 통과 기준 |
+| :--- | :--- |
+| 전체 필드 | `GenerationResult` 계약과 정확히 일치 |
+| 요청 연결 | `request_id`, `interaction_id`, `audience_level`이 입력과 일치 |
+| 실행 기록 | 모델·Prompt·지연시간·토큰 등의 실제 기록 존재 |
 | 글자 수 | 설명 수준별 권장 범위 확인 |
-| 실행 기록 | 모델·Prompt·지연시간·토큰 등의 기록 존재 |
 
 다음 조건은 총점과 관계없이 실패로 처리한다.
 
@@ -170,9 +212,10 @@ Prompt Baseline과 Fine-tuning 후보는 다음 조건을 동일하게 유지한
 
 - 기대한 응답 유형과 일치하는가
 - `used_chunk_ids=[]`인가
-- `citations=[]`로 연결될 수 있는가
 - 사실을 추측하거나 새로운 근거를 만들지 않았는가
 - 사용자가 이해할 수 있는 짧고 자연스러운 안내인가
+
+생성 평가에서는 `used_chunk_ids`가 계약과 일치하는지만 확인한다. `used_chunk_ids`를 이용한 최종 Citation 조립과 `citations=[]` 검증은 RAG 통합 평가에서 확인한다.
 
 ### 8.2. `needs_clarification` 추가 검사
 
@@ -186,6 +229,17 @@ Prompt Baseline과 Fine-tuning 후보는 다음 조건을 동일하게 유지한
 
 - 비밀정보 또는 금지된 내용을 답변에 포함하지 않는가
 - 안전 규칙을 설명하면서 실제 비밀 값을 노출하지 않는가
+
+### 8.4. 오프라인 강건성 평가
+
+실제 서비스에서는 `insufficient_evidence`, `safety_refusal`, `out_of_scope`가 생성 모델 호출 전에 확정되어 종료될 수 있다. 이 세 유형을 생성 모델에 직접 입력해 평가할 때에는 실제 서비스 경로와 구분하여 다음처럼 기록한다.
+
+```text
+evaluation_mode: offline_robustness
+grounding_decision: unchecked
+```
+
+이는 서비스 통합 성능이 아니라 예상하지 못한 입력이 생성 모델까지 전달되었을 때의 대응을 확인하는 오프라인 강건성 평가다. 공식 서비스 경로 결과와 하나의 평균으로 합치지 않고 별도로 집계한다.
 
 ## 9. 설명 수준과 권장 글자 수
 
@@ -211,7 +265,7 @@ Prompt Baseline과 Fine-tuning 후보는 다음 조건을 동일하게 유지한
 
 ### 10.1. 자동 검사
 
-모든 결과를 대상으로 계약·자료형·청크 ID·글자 수를 검사한다.
+모든 결과를 대상으로 LLM 원본 출력과 전체 `GenerationResult`를 차례로 검사한다. 재시도나 보정이 있었다면 원본 통과 여부, 재시도 횟수와 최종 통과 여부를 분리해 기록한다.
 
 ### 10.2. 평가용 LLM
 
@@ -246,11 +300,14 @@ Baseline인지 Fine-tuning 결과인지는 평가용 LLM에게 알려주지 않�
 
 ```text
 case_id
+split
 question
 audience_level
 expected_candidate_response_type
 retrieved_contexts
 context_snapshot_id
+evaluation_mode
+grounding_decision
 expected_key_points
 forbidden_or_unsupported_claims
 review_status
@@ -263,12 +320,27 @@ notes
 
 같은 질문을 `easy`, `general`, `advanced`로 비교할 때에는 `retrieved_contexts`를 동일하게 유지한다.
 
+### 11.1. Dev와 Holdout
+
+- Dev는 Prompt·학습 데이터·평가 기준의 반복 개선과 실패 분석에 사용한다.
+- Holdout은 최종 후보를 선정한 뒤 마지막 검증에서만 사용한다.
+- Holdout의 답변과 점수를 반복해서 확인하며 Prompt나 학습 데이터를 조정하지 않는다.
+
+스냅샷은 `split`별로 구분하고 기존 파일을 덮어쓰지 않는다. 원문 공개 범위나 용량 문제로 Git에 저장할 수 없으면 변경 불가능한 공유 파일로 보관하고, Git에는 스냅샷 ID·버전·체크섬·생성 조건을 기록한다.
+
+### 11.2. 평가 모드
+
+- `offline_generation`: 고정 문맥을 사용해 Prompt·Fine-tuning 후보의 생성 품질을 공식 비교
+- `offline_robustness`: 서비스에서 보통 생성 전에 종료되는 입력에 대한 생성 모델의 별도 강건성 평가
+
+Retriever부터 최종 Citation까지 실행하는 서비스 경로 결과는 생성 평가와 섞지 않고 RAG 통합 평가에서 기록한다.
+
 ## 12. 비교 결과 기록
 
-| case_id | 수준 | 방식 | 유형 정답 | 자동 검사 | 근거 | 질문 | 수준 | 명확성 | 총점 | 경고 | 시간 | 토큰·비용 |
-| :--- | :--- | :--- | :---: | :---: | ---: | ---: | ---: | ---: | ---: | :--- | ---: | ---: |
-| CASE-001 | easy | Baseline | PASS | PASS | 2 | 2 | 1 | 2 | 87.5 | 길이 |  |  |
-| CASE-001 | easy | Fine-tuning | PASS | PASS | 2 | 2 | 2 | 2 | 100 | 없음 |  |  |
+| case_id | split | snapshot | 평가 모드 | 수준 | 방식 | 유형 정답 | 원본 검사 | 전체 검사 | 근거 | 질문 | 수준 | 명확성 | 총점 | 경고 | 시간 | 토큰·비용 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :---: | ---: | ---: | ---: | ---: | ---: | :--- | ---: | ---: |
+| CASE-001 | dev | SNAPSHOT-001 | offline_generation | easy | Baseline | PASS | PASS | PASS | 2 | 2 | 1 | 2 | 87.5 | 길이 |  |  |
+| CASE-001 | dev | SNAPSHOT-001 | offline_generation | easy | Fine-tuning | PASS | PASS | PASS | 2 | 2 | 2 | 2 | 100 | 없음 |  |  |
 
 Baseline과 Fine-tuning은 같은 `case_id`를 나란히 비교할 수 있도록 기록한다.
 
@@ -292,6 +364,8 @@ Baseline이 없어도 다음 절대 기준은 먼저 확정할 수 있다.
 
 Fine-tuning 결과가 좋아도 근거 일치나 계약 준수 성능이 나빠지면 채택하지 않는다. 최종 채택 여부는 생성 담당자가 비교 결과와 권고안을 제시하고 팀이 결정한다.
 
+기반 모델이 다른 비교 결과는 Fine-tuning 채택 근거와 섞지 않고 별도의 모델 후보 비교표에 기록한다.
+
 ## 14. 팀원 협의 필요사항
 
 ### 14.1. 현재 문서 초안 단계
@@ -302,22 +376,22 @@ Fine-tuning 결과가 좋아도 근거 일치나 계약 준수 성능이 나빠�
 
 RAG Chain·통합 평가 담당과 다음을 확인해야 한다.
 
-- 생성 비교에 사용할 고정 `RetrievedContext` 제공 방식
-- 동일한 문맥을 다시 사용할 수 있는 스냅샷 저장 방법
-- 생성 평가와 최종 RAG 통합 평가의 중복 범위
+- 생성 비교에 사용할 고정 `RetrievedContext` 생성 방식
+- 순서·버전·체크섬을 유지하는 스냅샷 저장 위치
+- Dev와 Holdout의 최종 개수와 공개 시점
 - `candidate_response_type`과 최종 `response_type` 기록 위치
 
-이 협의가 필요한 이유는 생성 모델 비교 중 검색 결과가 달라지는 것을 막기 위해서다.
+생성 평가에서는 `used_chunk_ids`를 확인하고 최종 Citation 조립은 RAG 통합 평가에서 확인한다는 역할 구분은 확인되었다. 실제 실행 전에는 스냅샷 파일 형식과 저장 위치를 확정해야 한다.
 
 ### 14.3. 글자 수를 강제 기준으로 변경하기 전
 
-UI·음성 담당과 다음을 확인해야 한다.
+UI·음성 담당은 현재의 `easy` 100~250자, `general` 250~500자, `advanced` 500~900자 권장 범위와 `length_warning` 방식으로 화면을 구성할 수 있음을 확인했다.
 
-- 화면에서 한 번에 보여주기 적절한 답변 길이
-- 음성으로 들을 때 허용 가능한 재생시간
-- 지나치게 긴 답변을 접거나 나누어 표시할 수 있는지
+다음 내용을 변경할 때에는 다시 확인해야 한다.
 
-현재 글자 수는 권장 범위이므로 당장 협의하지 않아도 된다.
+- 권장 범위를 강제 최소·최대 길이로 변경
+- 음성 재생시간 제한 추가
+- 긴 답변을 여러 화면이나 구역으로 분리
 
 ### 14.4. 평가용 LLM 실행 전
 

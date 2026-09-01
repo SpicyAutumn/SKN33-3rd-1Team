@@ -424,5 +424,20 @@ class CompoundQuestionTest(unittest.TestCase):
         result = rag_client.EvidencePassthroughGenerator().invoke(request)
         self.assertEqual(result["candidate_response_type"], "answered")
 
+class EnvPlaceholderTest(unittest.TestCase):
+    """`.env.example`을 복사만 하고 값을 안 바꾼 경우를 잡는다."""
+
+    def test_placeholder_counts_as_missing(self):
+        with mock.patch.dict(os.environ, {"OLLAMA_BASE_URL": "{{your_ollama_base_url}}"}):
+            self.assertIn("OLLAMA_BASE_URL", rag_client.missing_env())
+
+    def test_blank_counts_as_missing(self):
+        with mock.patch.dict(os.environ, {"OLLAMA_BASE_URL": "   "}):
+            self.assertIn("OLLAMA_BASE_URL", rag_client.missing_env())
+
+    def test_real_value_passes(self):
+        with mock.patch.dict(os.environ, {"OLLAMA_BASE_URL": "https://abc-11434.proxy.runpod.net"}):
+            self.assertNotIn("OLLAMA_BASE_URL", rag_client.missing_env())
+
 if __name__ == "__main__":
     unittest.main()

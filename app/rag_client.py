@@ -51,10 +51,24 @@ def load_env() -> None:
             os.environ.setdefault(key, value)
 
 
+def _is_unset(value: str) -> bool:
+    """값이 비었거나 `.env.example`의 자리표시자 그대로인지.
+
+    `OLLAMA_BASE_URL={{your_ollama_base_url}}`처럼 예시를 복사만 하고
+    값을 바꾸지 않으면, 비어 있지 않으니 검사를 통과해 버린다. 그러면
+    화면에는 연결됨으로 뜨고 질문할 때가 되어서야 접속 오류가 난다.
+    """
+    text = value.strip()
+    return not text or (text.startswith("{{") and text.endswith("}}"))
+
+
 def missing_env() -> list[str]:
-    """비어 있는 필수 환경 변수 이름 목록. 값은 절대 반환하지 않는다."""
+    """비어 있거나 아직 채우지 않은 필수 환경 변수 이름 목록.
+
+    값은 절대 반환하지 않는다.
+    """
     load_env()
-    return [name for name in REQUIRED_ENV if not os.getenv(name, "").strip()]
+    return [name for name in REQUIRED_ENV if _is_unset(os.getenv(name, ""))]
 
 
 def is_live() -> bool:

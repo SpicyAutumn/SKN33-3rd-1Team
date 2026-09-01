@@ -56,6 +56,9 @@ HERITAGE_TYPES = (
 # 뿌리 문서를 설명할 때 보여 줄 길이.
 SUMMARY_LIMIT = 220
 
+# 지역 후보를 Pinecone 필터에 실을 최대 개수. `서울`은 200건이 넘는다.
+REGION_CANDIDATE_CAP = 200
+
 # 대분류만 맞춰 후보를 넓힌다. `조선/조선 전기`와 `조선/조선 후기`는 사용자에게
 # 모두 "조선"이다. 값이 정확히 같은 것만 묶으면 연결이 지나치게 끊긴다.
 _VALUE_SEPARATOR = "|"
@@ -98,6 +101,29 @@ class Entry:
         return [(label, value) for label, value in pairs if value]
 
 
+def region_from_summary(text: str) -> str:
+    """설명 문장의 주소에서 제목 앞머리로 쓰이는 지역 이름을 뽑는다.
+
+    제목만 보면 `경복궁`·`덕수궁`에는 지역이 없다. 만든 목록에서 지역이 잡히는
+    항목은 9.6%뿐이라 `같은 지역` 가지가 거의 뜨지 않았다. 정의 문단에는
+    `서울특별시 종로구에 있는…`처럼 주소가 들어 있으므로 거기서 뽑는다.
+
+    다만 주소 표기(`서울특별시 종로구`)와 제목 표기(`서울 원각사지…`)의 단위가
+    다르다. 이어 붙이려면 제목 쪽 표기로 맞춰야 한다.
+    """
+    address = regions.from_content(_clean(text))
+    if not address:
+        return ""
+    for token in reversed(address.split()):
+        for suffix in ("특별자치도", "특별자치시", "특별시", "광역시", "시", "군", "구", "도"):
+            if token.endswith(suffix) and len(token) > len(suffix):
+                token = token[: -len(suffix)]
+                break
+        if regions.from_title(f"{token} 표기 확인") == token:
+            return token
+    return ""
+
+
 def _read_manifest(path: Path) -> list[Entry]:
     with io.open(path, encoding="utf-8-sig", newline="") as handle:
         return [Entry(row) for row in csv.DictReader(handle)]
@@ -120,15 +146,48 @@ class Catalog:
             return None
         return self.by_document.get(key) or self.by_title.get(key)
 
-    def resolve(self, contexts: Iterable[dict[str, Any]]) -> Entry | None:
-        """검색 결과에서 지도의 뿌리로 삼을 문서를 고른다. 앞선 순위부터 본다."""
+    def resolve(self, contexts: Iterable[dict[str, Any]], question: str = "") -> Entry | None:
+        """검색 결과에서 지도의 뿌리로 삼을 문서를 고른다.
+
+        검색 1위를 그냥 쓰면 안 된다. `직지`를 물으면 1위가 `직`(유교 개념)이고
+        정답인 `불조직지심체요절`은 2위다. `거북선에 대해 알려줘`는 1위가
+        `거북점`이다. 뿌리를 잘못 잡으면 지도 전체가 엉뚱해진다.
+
+        세 가지를 순서대로 본다.
+          1. 문화유산인가. 개념보다 유물·문헌을 앞에 둔다.
+          2. 이 문서의 조각이 몇 개나 검색됐나. 여러 개면 그만큼 확실하다.
+          3. 제목이 질문 안에 들어 있나. `거북선` 질문에 `거북선` 제목.
+        모두 같으면 검색 순위를 따른다.
+        """
+        found: dict[str, dict[str, Any]] = {}
         for context in contexts:
             entry = self.find(_clean(context.get("document_id"))) or self.find(
                 _clean(context.get("title"))
             )
-            if entry:
-                return entry
-        return None
+            if entry is None:
+                continue
+            slot = found.setdefault(
+                entry.document_id,
+                {"entry": entry, "chunks": 0, "rank": context.get("retrieval_rank") or 99},
+            )
+            slot["chunks"] += 1
+
+        if not found:
+            return None
+
+        asked = _clean(question)
+
+        def score(slot: dict[str, Any]) -> tuple[int, int, int, int]:
+            entry: Entry = slot["entry"]
+            named = entry.title and entry.title in asked
+            return (
+                0 if self.is_heritage(entry) else 1,
+                -slot["chunks"],
+                0 if named else 1,
+                int(slot["rank"]),
+            )
+
+        return min(found.values(), key=score)["entry"]
 
     def values_sharing_top_level(self, column: str, value: str) -> list[str]:
         """같은 대분류에 속한 원본 문자열 목록. Pinecone `$in` 필터에 쓴다."""
@@ -321,6 +380,7 @@ def build_map(
             branches.append({"title": title, "note": note, "nodes": fresh})
 
     anchor = neighbors.anchor(root.document_id) if neighbors is not None else None
+    summary = neighbors.summary(root.document_id) if neighbors is not None else ""
 
     # 1. 구성 요소 — 만든 목록만으로 확실하게 판별된다.
     parts = [e for e in book.titles_starting_with(root.title) if book.is_heritage(e)]
@@ -400,26 +460,38 @@ def build_map(
                 ],
             )
 
-    # 4. 같은 지역 — 제목 앞머리로 판별한다. 좌표가 없어 이 방법뿐이다.
-    if root.region:
+    # 4. 같은 지역 — 좌표가 없어 이름과 주소로 판별한다.
+    place = root.region or region_from_summary(summary)
+    if place:
         # 지역 이름 자체가 제목인 문서(`경주`)는 문화유산이 아니라 지역 설명이다.
         nearby = [
             e
-            for e in book.in_region(root.region)
-            if e.document_id not in used and e.title != root.region and book.is_heritage(e)
+            for e in book.in_region(place)
+            if e.document_id not in used and e.title != place and book.is_heritage(e)
         ]
-        # 지역은 Pinecone 메타데이터에 없어 뜻으로 순위를 매길 수 없다. 가나다순으로
-        # 두면 `강릉 갈골과줄`처럼 결이 다른 항목이 앞에 온다. 유형과 분야가 같은
-        # 것을 먼저 보여 주면 적어도 성격이 비슷한 이웃이 앞에 선다.
+        # 지역은 Pinecone 메타데이터에 없다. 대신 후보의 document_id를 걸어 뜻이
+        # 가까운 순으로 세운다. 가나다순으로 두면 `서울 고려대학교 본관`처럼
+        # 결이 다른 항목이 앞에 온다.
         def affinity(entry: Entry) -> tuple[int, int, str]:
             same_type = top_level(entry.item_type) == top_level(root.item_type)
             same_field = top_level(entry.field) == top_level(root.field)
             return (0 if same_type else 1, 0 if same_field else 1, entry.title)
 
+        nearby = sorted(nearby, key=affinity)
+        if anchor and nearby:
+            by_id = {e.document_id: e for e in nearby[:REGION_CANDIDATE_CAP]}
+            ranked = neighbors.search(
+                anchor,
+                limit=limit,
+                metadata_filter={"document_id": {"$in": sorted(by_id)}},
+                exclude_documents=used,
+            )
+            nearby = [by_id[d] for d, _ in ranked if d in by_id] or nearby
+
         add(
-            f"같은 지역 · {root.region}",
-            f"이름 앞머리가 `{root.region}`인 항목입니다.",
-            [_node(e, f"{root.region} 소재") for e in sorted(nearby, key=affinity)],
+            f"같은 지역 · {place}",
+            f"이름 앞머리가 `{place}`인 항목입니다.",
+            [_node(e, f"{place} 소재") for e in nearby],
         )
 
     # 5. 몰랐던 연결 — 유형을 일부러 뒤집는다.
@@ -444,16 +516,12 @@ def build_map(
             ],
         )
 
-    summary = neighbors.summary(root.document_id) if neighbors is not None else ""
-    if len(summary) > SUMMARY_LIMIT:
-        summary = summary[:SUMMARY_LIMIT].rstrip() + "…"
-
     return {
         "root": {
             "document_id": root.document_id,
             "title": root.title,
             "fields": root.summary_fields(),
-            "summary": summary,
+            "summary": (summary[:SUMMARY_LIMIT].rstrip() + "…") if len(summary) > SUMMARY_LIMIT else summary,
             "source_url": root.source_url,
         },
         "branches": branches,

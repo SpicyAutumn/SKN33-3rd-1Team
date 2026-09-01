@@ -77,7 +77,7 @@ def render() -> None:
         return
 
     book = heritage_graph.catalog()
-    searched = book.resolve(result.get("retrieved_contexts", []))
+    searched = book.resolve(result.get("retrieved_contexts", []), result.get("question", ""))
     if searched is None:
         st.warning("이번 검색 결과와 만든 목록을 연결하지 못했습니다.")
         return

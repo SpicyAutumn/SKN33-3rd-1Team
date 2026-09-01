@@ -303,6 +303,43 @@ class HeritageGraphTest(unittest.TestCase):
         payload = heritage_graph.build_map("궁궐", neighbors=None)
         self.assertFalse([b for b in payload["branches"] if b["title"].startswith("같은 시대")])
 
+    def test_root_prefers_a_heritage_item_over_a_concept(self):
+        """`직지`를 물으면 검색 1위가 `직`(유교 개념)이고 정답은 2위였다."""
+        contexts = [
+            {"document_id": self.book.find("직").document_id, "title": "직", "retrieval_rank": 1},
+            {
+                "document_id": self.book.find("불조직지심체요절").document_id,
+                "title": "불조직지심체요절",
+                "retrieval_rank": 2,
+            },
+        ]
+        self.assertEqual(self.book.resolve(contexts, "직지").title, "불조직지심체요절")
+
+    def test_root_prefers_the_document_with_more_chunks(self):
+        """`거북선에 대해 알려줘`는 1위가 `거북점`이었다. 둘 다 문화유산이다."""
+        turtle = self.book.find("거북선").document_id
+        divination = self.book.find("거북점").document_id
+        contexts = [
+            {"document_id": divination, "title": "거북점", "retrieval_rank": 1},
+            {"document_id": turtle, "title": "거북선", "retrieval_rank": 2},
+            {"document_id": turtle, "title": "거북선", "retrieval_rank": 3},
+        ]
+        self.assertEqual(self.book.resolve(contexts, "거북선에 대해 알려줘").title, "거북선")
+
+    def test_no_usable_context_gives_no_root(self):
+        self.assertIsNone(self.book.resolve([{"document_id": "없음", "title": "없음"}], "질문"))
+
+    def test_region_comes_from_the_address_when_the_title_has_none(self):
+        """제목으로 지역이 잡히는 항목은 9.6%뿐이다. `경복궁`도 그중에 없다."""
+        self.assertEqual(self.book.find("경복궁").region, "")
+        self.assertEqual(
+            heritage_graph.region_from_summary("서울특별시 종로구 세종로에 있는 궁궐."), "서울"
+        )
+        self.assertEqual(
+            heritage_graph.region_from_summary("경상북도 경주시 진현동에 있다."), "경주"
+        )
+        self.assertEqual(heritage_graph.region_from_summary("조선 후기의 문신이다."), "")
+
     def test_same_title_is_not_repeated(self):
         """`경주`나 `훈민정음`처럼 이름이 겹치는 문서가 여럿 있다."""
         payload = heritage_graph.build_map("훈민정음", neighbors=None)

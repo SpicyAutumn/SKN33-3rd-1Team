@@ -24,16 +24,10 @@ REQUIRED_ENV = ("OPENAI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX_NAME")
 # 로컬 BM25 인덱스. Pinecone과 달리 공용이 아니라 각자 만들어야 한다.
 DEFAULT_BM25_INDEX_PATH = PROJECT_ROOT / "data" / "processed" / "aks_bm25_v1.sqlite3"
 
-# [제거 예정] 근거 충분성 판정은 생성·평가 담당의 EvidenceChecker가 맡는다.
-# 그 구현이 나오기 전까지 화면이 무엇도 답하지 못하는 상태를 막기 위한 임시값이다.
-# 값 근거: 범위 안 질문 최저 0.440, 범위 밖 질문 최고 0.335 (2026-08-31 실측)
-TEMP_EVIDENCE_MIN_SCORE = 0.40
-
-# 위 기준선을 적용해도 되는 점수 종류. 이 외의 척도는 비교하지 않고 통과시킨다.
-THRESHOLD_SCORE_TYPE = "similarity"
-
 # [제거 예정] 생성이 붙으면 used_chunk_ids는 생성 결과가 정한다.
-EVIDENCE_DOCUMENT_LIMIT = 3
+# 팀 결정(2026-09-01): 문서당 제한은 두지 않는다. 같은 문서의 여러 청크가
+# 필요한 질문에서 검색이 살려 놓은 근거를 화면 직전에 버리지 않기 위해서다.
+EVIDENCE_CHUNK_LIMIT = 3
 
 
 def load_env() -> None:
@@ -67,39 +61,20 @@ def _score(context: dict[str, Any]) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
-def is_threshold_comparable(context: dict[str, Any]) -> bool:
-    """이 조각의 점수를 기준선과 견줘도 되는지 판단한다.
+def pick_evidence(contexts: list[dict[str, Any]], limit: int = EVIDENCE_CHUNK_LIMIT) -> list[dict[str, Any]]:
+    """내용이 있는 조각을 검색 순서대로 고른다. 같은 문서인지는 보지 않는다.
 
-    기준선 0.40은 코사인 유사도(`similarity`)를 재서 정한 값이다.
-    하이브리드 검색이 돌려주는 RRF 점수(`relevance`)는 척도가 완전히 달라
-    이론상 최댓값이 0.041뿐이므로, 같은 값을 들이대면 모든 조각이 미달이 되어
-    어떤 질문에도 답하지 못하는 상태가 된다.
+    팀 결정(2026-09-01): 문서당 제한은 검색 단계에서 다룰 일이지 화면 직전에
+    자를 일이 아니다. 같은 문서의 여러 청크가 필요한 질문이 있다.
+    출처 카드는 `group_by_document()`가 문서 단위로 묶어 보여 준다.
     """
-    return str(context.get("score_type", "")).strip() == THRESHOLD_SCORE_TYPE
-
-
-def meets_threshold(context: dict[str, Any], min_score: float = TEMP_EVIDENCE_MIN_SCORE) -> bool:
-    """기준선 판정 한 곳.
-
-    점수 척도가 다르거나 점수가 없으면 판단 불가로 보고 통과시킨다.
-    `0.0`은 실제 점수이므로 `or` 대신 `is None`으로 구분한다.
-    화면·근거 판정·근거 선택이 모두 이 함수를 쓴다.
-    """
-    if not is_threshold_comparable(context):
-        return True
-    score = _score(context)
-    return score is None or score >= min_score
-
-
-def pick_documents(contexts: list[dict[str, Any]], limit: int = EVIDENCE_DOCUMENT_LIMIT) -> list[dict[str, Any]]:
-    """서로 다른 문서를 순위 순으로 고른다. 같은 문서의 조각은 앞선 하나만 쓴다."""
     picked: list[dict[str, Any]] = []
     seen: set[str] = set()
     for context in contexts:
-        key = str(context.get("document_id") or context.get("chunk_id") or "")
-        if key in seen:
+        chunk_id = str(context.get("chunk_id") or "")
+        if not chunk_id or chunk_id in seen:
             continue
-        seen.add(key)
+        seen.add(chunk_id)
         picked.append(context)
         if len(picked) >= limit:
             break
@@ -162,18 +137,17 @@ def compound_clarification(question: str) -> dict[str, Any]:
     }
 
 
-class ScoreEvidenceChecker:
-    """[제거 예정] 유사도만 보는 임시 근거 판정기.
+class ContentEvidenceChecker:
+    """[제거 예정] 내용이 있는 조각이 하나라도 있으면 통과시키는 임시 판정기.
 
-    점수만으로는 그 조각이 질문에 답하는지 증명할 수 없다. 실제 판정기가
-    준비되면 이 클래스를 지우고 RagService에 그 구현을 넘긴다.
+    점수 기준선은 쓰지 않는다. 팀 결정(2026-09-01)에 따라 하이브리드 검색에는
+    점수 기준선을 두지 않기로 했고, 점수만으로는 그 조각이 질문에 답하는지
+    증명할 수도 없다. 실제 판정기가 준비되면 이 클래스를 지운다.
     """
 
-    def __init__(self, min_score: float = TEMP_EVIDENCE_MIN_SCORE) -> None:
-        self.min_score = min_score
-
     def decide(self, question: str, contexts: list[dict[str, Any]]) -> str:
-        return "sufficient" if any(meets_threshold(c, self.min_score) for c in contexts) else "insufficient"
+        usable = any(str(c.get("content", "")).strip() for c in contexts)
+        return "sufficient" if usable else "insufficient"
 
 
 class EvidencePassthroughGenerator:
@@ -212,8 +186,8 @@ class EvidencePassthroughGenerator:
         if request.get("clarification_context") is None and is_compound(request["question"]):
             return self._clarification_result(request)
         # 근거 판정이 통과시킨 검색이라도, 기준선에 못 미치는 개별 조각은 근거로 쓰지 않는다.
-        usable = [c for c in contexts if str(c.get("content", "")).strip() and meets_threshold(c)]
-        picked = pick_documents(usable)
+        usable = [c for c in contexts if str(c.get("content", "")).strip()]
+        picked = pick_evidence(usable)
         message = (
             f"검색으로 찾은 근거 {len(picked)}건입니다. "
             "답변 문장 생성은 아직 연결되지 않아 검색된 원문을 그대로 보여 드립니다. "
@@ -276,6 +250,41 @@ def bm25_index_chunk_count() -> int | None:
         return None
 
 
+class HybridWithSimilarity:
+    """하이브리드로 순위를 정하고, 점수는 코사인 유사도를 그대로 돌려준다.
+
+    RRF 점수는 순위를 합치기 위한 장치라 그 자체로는 읽을 뜻이 없다.
+    기본 가중치에서 최댓값이 0.041이라 화면에 띄우면 `0.0397` 같은 숫자가
+    나오는데, 팀의 다른 검색 결과는 모두 `0.4~0.5`대 유사도를 보여 준다.
+    같은 대상을 두고 자릿수가 다른 숫자를 보면 비교가 불가능하다.
+
+    그래서 순위만 하이브리드에서 가져오고, 점수는 융합 전 밀집 검색이
+    매긴 유사도를 되살려 넣는다. 낱말 검색으로만 올라온 조각은 유사도를
+    잰 적이 없으므로 계약대로 `score_type="unknown"`으로 둔다.
+    """
+
+    def __init__(self, dense, bm25, **options) -> None:
+        from rag_indexing.hybrid_retriever import HybridRetriever
+
+        self.dense = dense
+        self.hybrid = HybridRetriever(dense, bm25, **options)
+
+    def search(self, question: str, *, top_k: int = 5) -> list[dict[str, Any]]:
+        candidate_k = max(top_k, self.hybrid.candidate_k)
+        candidates = self.dense.search(question, top_k=candidate_k)
+        similarity = {
+            str(c["chunk_id"]): c.get("retrieval_score")
+            for c in candidates
+            if str(c.get("score_type", "")) == "similarity"
+        }
+        fused = self.hybrid.search_from_dense_results(question, candidates, top_k=top_k)
+        for item in fused:
+            score = similarity.get(str(item["chunk_id"]))
+            item["retrieval_score"] = score
+            item["score_type"] = "similarity" if score is not None else "unknown"
+        return fused
+
+
 def build_retriever():
     """BM25 인덱스가 있으면 하이브리드, 없으면 Pinecone 단독으로 검색한다.
 
@@ -292,9 +301,8 @@ def build_retriever():
         return dense
 
     from rag_indexing.bm25_store import BM25Retriever
-    from rag_indexing.hybrid_retriever import HybridRetriever
 
-    return HybridRetriever(dense, BM25Retriever(path))
+    return HybridWithSimilarity(dense, BM25Retriever(path))
 
 
 def build_service():
@@ -308,5 +316,5 @@ def build_service():
     return RagService(
         retriever=build_retriever(),
         generator=EvidencePassthroughGenerator(),
-        evidence_checker=ScoreEvidenceChecker(),
+        evidence_checker=ContentEvidenceChecker(),
     )

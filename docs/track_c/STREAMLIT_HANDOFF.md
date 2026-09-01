@@ -131,51 +131,30 @@ last_result = {
 - `session_state`는 영구 저장이 아니다. 새 세션·재접속에는 사라진다.
 - `st.cache_data`를 사용자별 질문 보관함으로 쓰지 않는다. 공유 캐시에 개인정보가 섞이면 안 된다.
 
-## 5. 기준선 판정은 한 곳만 쓴다
+## 5. 점수 기준선은 두지 않는다
 
-`app/rag_client.py`의 `meets_threshold()` 하나만 쓴다. 화면·근거 판정·근거 선택이 어긋나면 안 된다.
+팀 결정(2026-09-01)에 따라 점수 기준선을 없앴다. `TEMP_EVIDENCE_MIN_SCORE`, `meets_threshold()`, 화면의 기준선 표시가 모두 사라졌다. 근거 판정은 `ContentEvidenceChecker`가 **내용이 있는지만** 본다.
 
-```python
-def meets_threshold(context, min_score=TEMP_EVIDENCE_MIN_SCORE) -> bool:
-    if not is_threshold_comparable(context):
-        return True
-    score = _score(context)
-    return score is None or score >= min_score
-```
+### 화면에는 유사도를 보여 준다
 
-- 점수 없음(`None`)은 판단 불가로 보고 **통과**시킨다. 점수를 주지 않는 검색기도 있다.
-- `0.0`은 실제 점수다. `or` 연산으로 처리하면 falsy로 걸려 통과해 버린다. 반드시 `is None`으로 구분한다.
-- **점수 척도가 다르면 아예 비교하지 않는다.** 아래 항목을 보라.
+하이브리드 검색은 RRF로 순위를 합치면서 `retrieval_score`를 융합 점수로 덮어쓴다. 그 값은 기본 가중치에서 최댓값이 `2.5/61 ≈ 0.041`이라 화면에 `0.0397` 같은 숫자가 뜬다. 팀의 다른 검색 결과는 모두 `0.4~0.5`대 유사도라 **같은 대상을 두고 자릿수가 다른 숫자**를 보게 된다.
 
-이 함수를 쓰는 곳: `ScoreEvidenceChecker`, `EvidencePassthroughGenerator`, `evaluation.py`, `pipeline.py`.
-
-### 기준선은 코사인 유사도에서만 뜻이 있다
-
-`TEMP_EVIDENCE_MIN_SCORE = 0.40`은 Pinecone 코사인 유사도를 실측해서 정한 값이다.
-검색기가 바뀌면 이 숫자는 그대로 쓸 수 없다.
-
-PR #19의 하이브리드 검색은 Pinecone과 BM25를 **RRF(순위 융합)** 로 합치고
-`score_type`을 `"relevance"`로 바꿔서 돌려준다. RRF 점수는 순위의 역수를 더한 값이라
-기본 가중치(dense 1.5 / bm25 1.0, `rrf_k=60`)에서 **이론상 최댓값이 `2.5/61 ≈ 0.041`** 이다.
-0.40 기준선을 그대로 들이대면 1위 조각조차 미달이 되어 **모든 질문이 보류**된다.
-
-실제로 확인한 결과다. 같은 하이브리드 결과를 넣고 변경 전후를 비교했다.
+그래서 `HybridWithSimilarity`가 순위만 하이브리드에서 가져오고, 점수는 융합 전 밀집 검색이 매긴 유사도를 되살려 넣는다.
 
 ```
-변경 전  ->  insufficient_evidence   citations 0
-변경 후  ->  answered                citations 3
+검색 3건 · 경복궁에 대해 알려줘
+  1위  유사도 0.388  경복궁
+  2위  유사도 0.381  경복궁
+  3위  유사도 0.411  금관조복
 ```
 
-그래서 `is_threshold_comparable()`이 `score_type`을 보고 판단한다.
-`"similarity"`가 아니면 척도가 다르므로 **비교하지 않고 통과**시킨다.
+**순위와 유사도 순서는 일치하지 않는다.** 3위가 유사도는 가장 높다. 낱말 일치를 함께 봤기 때문이고, 그게 하이브리드가 하는 일이다. 화면에도 그렇게 적어 둔다. `1·2위 격차` 같은 표기는 유사도가 순위 순으로 내려간다는 전제가 필요하므로 쓰면 안 된다 — 음수가 나온다.
 
-화면 표기도 함께 따라간다. `retrieval.threshold_applies()` / `retrieval.score_label()`을 쓰면
-기준선을 적용하지 않은 결과에 `기준선 0.40`이나 `유사도`라는 말이 뜨지 않는다.
-숫자를 지우는 게 목적이 아니라, **적용하지 않은 기준을 적용한 것처럼 보이지 않게** 하는 게 목적이다.
+낱말 검색으로만 올라온 조각은 유사도를 잰 적이 없다. 계약대로 `score_type="unknown"`으로 두고 화면에는 `—`로 적는다. 0으로 적으면 가장 안 비슷한 것처럼 보인다.
 
-> Track A의 안내문은 `RAG_MIN_RETRIEVAL_SCORE` 환경 변수를 비우라고 한다.
-> 그건 Track B의 `GroundingPolicy`용이고 지금 `.env`에 설정돼 있지 않아 이미 동작하지 않는다.
-> Track C의 기준선은 별개의 파이썬 상수라 환경 변수를 비워도 영향을 받지 않는다. 둘을 혼동하지 말 것.
+### 문서당 제한 없음
+
+`pick_evidence()`는 내용이 있는 조각을 검색 순서대로 최대 3개 고른다. **같은 문서인지 보지 않는다.** 문서당 제한은 검색 단계에서 다룰 일이지 화면 직전에 자를 일이 아니다. 출처 카드는 `group_by_document()`가 문서 단위로 묶어 보여 준다.
 
 ## 6. 역할 경계
 

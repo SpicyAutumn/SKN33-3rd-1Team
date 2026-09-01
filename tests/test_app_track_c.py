@@ -74,52 +74,47 @@ class CitationGroupingTest(unittest.TestCase):
 
 
 class EvidenceSelectionTest(unittest.TestCase):
-    def test_picks_distinct_documents_up_to_limit(self):
-        picked = rag_client.pick_documents(
+    """팀 결정(2026-09-01): 근거 선택에 문서당 제한을 두지 않는다."""
+
+    def test_keeps_same_document_chunks_in_search_order(self):
+        picked = rag_client.pick_evidence(
             [
                 context(chunk_id="c1", document_id="d1", title="A", rank=1),
                 context(chunk_id="c2", document_id="d1", title="A", rank=2),
                 context(chunk_id="c3", document_id="d2", title="B", rank=3),
                 context(chunk_id="c4", document_id="d3", title="C", rank=4),
-                context(chunk_id="c5", document_id="d4", title="D", rank=5),
             ],
             limit=3,
         )
-        self.assertEqual([p["document_id"] for p in picked], ["d1", "d2", "d3"])
+        self.assertEqual([p["chunk_id"] for p in picked], ["c1", "c2", "c3"])
 
-
-class ThresholdTest(unittest.TestCase):
-    """기준선 판정은 한 함수만 쓴다. 화면과 근거 선택이 같은 결과를 내야 한다."""
-
-    def test_score_above_or_equal_passes(self):
-        self.assertTrue(rag_client.meets_threshold(context(chunk_id="c", document_id="d", title="A", score=0.41)))
-        self.assertTrue(rag_client.meets_threshold(context(chunk_id="c", document_id="d", title="A", score=0.40)))
-
-    def test_score_below_fails(self):
-        self.assertFalse(rag_client.meets_threshold(context(chunk_id="c", document_id="d", title="A", score=0.38)))
-
-    def test_zero_score_is_a_real_score_and_fails(self):
-        self.assertFalse(rag_client.meets_threshold(context(chunk_id="c", document_id="d", title="A", score=0.0)))
-
-    def test_missing_score_passes_as_undecidable(self):
-        self.assertTrue(rag_client.meets_threshold(context(chunk_id="c", document_id="d", title="A", score=None)))
+    def test_same_chunk_is_not_repeated(self):
+        picked = rag_client.pick_evidence(
+            [
+                context(chunk_id="c1", document_id="d1", title="A", rank=1),
+                context(chunk_id="c1", document_id="d1", title="A", rank=2),
+            ]
+        )
+        self.assertEqual(len(picked), 1)
 
 
 class EvidenceCheckerTest(unittest.TestCase):
-    def setUp(self):
-        self.checker = rag_client.ScoreEvidenceChecker(min_score=0.40)
+    """점수 기준선은 쓰지 않는다. 내용이 있으면 통과."""
 
-    def test_sufficient_when_any_context_meets_threshold(self):
-        contexts = [context(chunk_id="c1", document_id="d1", title="A", score=0.44)]
+    def setUp(self):
+        self.checker = rag_client.ContentEvidenceChecker()
+
+    def test_low_score_still_passes(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="A", score=0.01)]
         self.assertEqual(self.checker.decide("q", contexts), "sufficient")
 
-    def test_insufficient_when_all_below_threshold(self):
-        contexts = [context(chunk_id="c1", document_id="d1", title="A", score=0.33)]
-        self.assertEqual(self.checker.decide("q", contexts), "insufficient")
-
-    def test_missing_score_is_not_rejected(self):
+    def test_missing_score_passes(self):
         contexts = [context(chunk_id="c1", document_id="d1", title="A", score=None)]
         self.assertEqual(self.checker.decide("q", contexts), "sufficient")
+
+    def test_blank_content_is_insufficient(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="A", content="   ")]
+        self.assertEqual(self.checker.decide("q", contexts), "insufficient")
 
     def test_no_contexts_is_insufficient(self):
         self.assertEqual(self.checker.decide("q", []), "insufficient")
@@ -171,23 +166,25 @@ class GeneratorContractTest(unittest.TestCase):
         self.assertTrue(set(result["used_chunk_ids"]).issubset({c["chunk_id"] for c in contexts}))
         self.assertEqual(result["audience_level"], "easy")
 
-    def test_below_threshold_chunks_are_not_used_as_evidence(self):
-        """통과·미달이 섞여 있어도 미달 조각은 근거가 되지 않는다."""
+    def test_low_score_chunks_are_still_used(self):
+        """점수 기준선을 두지 않는다. 검색이 올린 조각을 화면 직전에 버리지 않는다."""
         contexts = [
-            context(chunk_id="pass", document_id="d1", title="통과", score=0.41, rank=1),
-            context(chunk_id="drop1", document_id="d2", title="미달", score=0.38, rank=2),
-            context(chunk_id="drop2", document_id="d3", title="미달", score=0.30, rank=3),
+            context(chunk_id="c1", document_id="d1", title="A", score=0.41, rank=1),
+            context(chunk_id="c2", document_id="d2", title="B", score=0.38, rank=2),
+            context(chunk_id="c3", document_id="d3", title="C", score=0.30, rank=3),
         ]
         result = rag_client.EvidencePassthroughGenerator().invoke(self.request(contexts))
-        self.assertEqual(result["used_chunk_ids"], ["pass"])
+        self.assertEqual(result["used_chunk_ids"], ["c1", "c2", "c3"])
 
-    def test_all_below_threshold_yields_no_evidence(self):
+    def test_same_document_chunks_are_all_used(self):
+        """팀 결정: 문서당 제한 없음. 같은 문서의 여러 청크가 필요한 질문이 있다."""
         contexts = [
-            context(chunk_id="c1", document_id="d1", title="A", score=0.38),
-            context(chunk_id="c2", document_id="d2", title="B", score=0.30),
+            context(chunk_id="c1", document_id="d1", title="경복궁", rank=1),
+            context(chunk_id="c2", document_id="d1", title="경복궁", rank=2),
+            context(chunk_id="c3", document_id="d1", title="경복궁", rank=3),
         ]
         result = rag_client.EvidencePassthroughGenerator().invoke(self.request(contexts))
-        self.assertEqual(result["used_chunk_ids"], [])
+        self.assertEqual(result["used_chunk_ids"], ["c1", "c2", "c3"])
 
     def test_blank_content_is_not_used_as_evidence(self):
         contexts = [
@@ -247,94 +244,79 @@ class ExplorationMapTest(unittest.TestCase):
         self.assertIsNone(_build_payload("질문", []))
 
 
-class HybridScoreTest(unittest.TestCase):
-    """검색기가 하이브리드로 바뀌어도 화면이 모든 질문을 보류하지 않아야 한다.
+class HybridSimilarityTest(unittest.TestCase):
+    """순위는 하이브리드가 정하고, 점수는 유사도를 그대로 보여 준다."""
 
-    기준선 0.40은 코사인 유사도를 재서 정한 값이다. RRF 점수는 척도가 달라
-    기본 가중치에서 이론상 최댓값이 2.5/61 ≈ 0.041뿐이므로,
-    같은 값을 그대로 적용하면 어떤 조각도 통과하지 못한다.
-    """
+    META = {"aliases": [], "document_fingerprint": "fp", "chunking_fingerprint": "cf"}
 
-    RRF_CEILING = 2.5 / 61
+    class FakeDense:
+        def __init__(self, outer):
+            self.outer = outer
 
-    @classmethod
-    def rrf(cls, chunk_id: str, document_id: str, *, rank: int = 1, score: float | None = None) -> dict:
-        item = context(
-            chunk_id=chunk_id,
-            document_id=document_id,
-            title=chunk_id,
-            rank=rank,
-            score=cls.RRF_CEILING if score is None else score,
-        )
-        item["score_type"] = "relevance"
-        return item
+        def search(self, question, *, top_k=5):
+            order = [("c3", 0.51), ("c1", 0.44), ("c2", 0.39)]
+            return [
+                {
+                    "chunk_id": cid, "document_id": cid, "title": cid, "content": "본문",
+                    "source_url": "https://x", "section": "body", "retrieval_rank": rank,
+                    "retrieval_score": score, "score_type": "similarity",
+                    "metadata": dict(self.outer.META),
+                }
+                for rank, (cid, score) in enumerate(order, start=1)
+            ][:top_k]
 
-    def test_rrf_ceiling_is_far_below_the_cosine_threshold(self):
-        """전제 확인: 최고점 조각조차 기준선 숫자에는 닿지 못한다."""
-        self.assertLess(self.RRF_CEILING, rag_client.TEMP_EVIDENCE_MIN_SCORE)
+    class FakeBM25:
+        def __init__(self, outer):
+            self.outer = outer
 
-    def test_rrf_score_is_not_graded_against_the_cosine_threshold(self):
-        self.assertFalse(rag_client.is_threshold_comparable(self.rrf("c1", "d1")))
-        self.assertTrue(rag_client.meets_threshold(self.rrf("c1", "d1")))
+        def search(self, question, *, top_k=5):
+            # 낱말 검색은 c1을 1위로 올린다. 융합하면 c1이 앞으로 나와야 한다.
+            order = ["c1", "c1x", "c3"]
+            return [
+                {
+                    "chunk_id": cid, "document_id": cid, "title": cid, "content": "본문",
+                    "source_url": "https://x", "section": "body", "retrieval_rank": rank,
+                    "retrieval_score": 9.0 - rank, "score_type": "relevance",
+                    "metadata": dict(self.outer.META),
+                }
+                for rank, cid in enumerate(order, start=1)
+            ][:top_k]
 
-    def test_cosine_score_is_still_graded(self):
-        passing = context(chunk_id="c1", document_id="d1", title="A", score=0.44)
-        failing = context(chunk_id="c2", document_id="d2", title="B", score=0.33)
-        self.assertTrue(rag_client.is_threshold_comparable(passing))
-        self.assertTrue(rag_client.meets_threshold(passing))
-        self.assertFalse(rag_client.meets_threshold(failing))
+    def setUp(self):
+        self.retriever = rag_client.HybridWithSimilarity(self.FakeDense(self), self.FakeBM25(self))
 
-    def test_missing_score_type_is_undecidable_and_passes(self):
-        item = context(chunk_id="c1", document_id="d1", title="A", score=0.01)
-        item.pop("score_type")
-        self.assertTrue(rag_client.meets_threshold(item))
+    def test_scores_are_cosine_similarity_not_rrf(self):
+        results = self.retriever.search("질문", top_k=3)
+        by_id = {r["chunk_id"]: r for r in results}
+        self.assertEqual(by_id["c1"]["retrieval_score"], 0.44)
+        self.assertEqual(by_id["c1"]["score_type"], "similarity")
+        # RRF 점수(최댓값 약 0.041)가 새어 나오면 안 된다.
+        for result in results:
+            score = result["retrieval_score"]
+            if score is not None:
+                self.assertGreater(score, 0.1)
 
-    def test_evidence_checker_does_not_hold_every_hybrid_answer(self):
-        contexts = [self.rrf("c1", "d1"), self.rrf("c2", "d2", rank=2, score=0.0403)]
-        self.assertEqual(rag_client.ScoreEvidenceChecker().decide("q", contexts), "sufficient")
+    def test_ranking_still_comes_from_hybrid(self):
+        results = self.retriever.search("질문", top_k=3)
+        self.assertEqual(results[0]["chunk_id"], "c1")
+        self.assertEqual([r["retrieval_rank"] for r in results], [1, 2, 3])
 
-    def test_generator_keeps_hybrid_contexts_as_evidence(self):
-        contexts = [self.rrf("c1", "d1"), self.rrf("c2", "d2", rank=2, score=0.0403)]
-        result = rag_client.EvidencePassthroughGenerator().invoke(GeneratorContractTest.request(contexts))
-        self.assertEqual(result["candidate_response_type"], "answered")
-        self.assertEqual(result["used_chunk_ids"], ["c1", "c2"])
+    def test_bm25_only_chunk_has_no_similarity(self):
+        """유사도를 잰 적이 없으면 계약대로 unknown으로 둔다."""
+        results = self.retriever.search("질문", top_k=4)
+        extra = [r for r in results if r["chunk_id"] == "c1x"]
+        self.assertTrue(extra)
+        self.assertIsNone(extra[0]["retrieval_score"])
+        self.assertEqual(extra[0]["score_type"], "unknown")
 
 
-class ThresholdDisplayTest(unittest.TestCase):
-    """기준선을 적용하지 않은 결과에 기준선 숫자를 띄우면 틀린 설명이 된다."""
+class ScoreDisplayTest(unittest.TestCase):
+    def test_similarity_is_shown_to_three_places(self):
+        self.assertEqual(retrieval.format_score(0.4412), "0.441")
 
-    def test_cosine_results_are_reported_as_graded(self):
-        contexts = [context(chunk_id="c1", document_id="d1", title="A", score=0.44)]
-        self.assertTrue(retrieval.threshold_applies(contexts))
-        self.assertEqual(retrieval.score_label(contexts), "유사도")
+    def test_unmeasured_similarity_is_blank_not_zero(self):
+        self.assertEqual(retrieval.format_score(None), "—")
 
-    def test_hybrid_results_are_reported_as_ungraded(self):
-        contexts = [HybridScoreTest.rrf("c1", "d1")]
-        self.assertFalse(retrieval.threshold_applies(contexts))
-        self.assertEqual(retrieval.score_label(contexts), "관련도")
-
-    def test_no_contexts_is_ungraded(self):
-        self.assertFalse(retrieval.threshold_applies([]))
-
-class RetrievalModeTest(unittest.TestCase):
-    """BM25 인덱스는 각자 만들어야 한다. 없다고 화면이 멈추면 안 된다."""
-
-    def test_missing_index_falls_back_to_dense(self):
-        absent = str(PROJECT_ROOT / "data" / "processed" / "없는파일.sqlite3")
-        with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": absent}):
-            self.assertEqual(rag_client.retrieval_mode(), "dense")
-            self.assertEqual(retrieval.retrieval_label(), "의미 검색 단독")
-
-    def test_existing_index_selects_hybrid(self):
-        present = str(Path(__file__).resolve())
-        with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": present}):
-            self.assertEqual(rag_client.retrieval_mode(), "hybrid")
-            self.assertIn("하이브리드", retrieval.retrieval_label())
-
-    def test_override_wins_over_default_path(self):
-        override = str(Path(__file__).resolve())
-        with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": override}):
-            self.assertEqual(rag_client.bm25_index_path(), Path(override))
 
 class CompoundQuestionTest(unittest.TestCase):
     """팀 합의(2026-09-01): 여러 질문은 나눠 답하지 않고 하나만 물어봐 달라고 되돌려준다."""

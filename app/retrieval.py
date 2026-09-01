@@ -13,8 +13,6 @@ from rag_client import (  # noqa: F401 - 화면에서 그대로 사용한다
     bm25_index_chunk_count,
     bm25_index_path,
     is_live,
-    is_threshold_comparable,
-    meets_threshold,
     missing_env,
     retrieval_mode,
 )
@@ -27,35 +25,15 @@ AUDIENCE_LEVELS = ("easy", "general", "advanced")
 AUDIENCE_LABELS = {"easy": "쉽게 설명", "general": "일반 설명", "advanced": "깊이 있게"}
 DEFAULT_AUDIENCE_LEVEL = "general"
 
-# [제거 예정] 임시 근거 판정기가 쓰는 기준선. 화면에서 통과·탈락을 설명하는 데만 쓴다.
-# 실제 EvidenceChecker가 붙으면 이 값과 관련 표시를 함께 걷어낸다.
-EVIDENCE_MIN_SCORE = rag_client.TEMP_EVIDENCE_MIN_SCORE
+def format_score(score: Any) -> str:
+    """유사도 표기. 잰 적이 없으면 `—`.
 
-
-def threshold_applies(contexts: list[dict[str, Any]]) -> bool:
-    """이번 검색 결과에 기준선을 적용했는지.
-
-    검색기가 바뀌어 점수 척도가 달라지면 기준선은 뜻을 잃는다.
-    그때 화면에 `기준선 0.40`을 그대로 띄우면 틀린 설명이 되므로 여기서 걸러낸다.
-    """
-    return any(is_threshold_comparable(c) for c in contexts)
-
-
-def score_label(contexts: list[dict[str, Any]]) -> str:
-    """점수 종류에 맞는 화면 표기. 하이브리드 검색은 유사도가 아니다."""
-    return "유사도" if threshold_applies(contexts) else "관련도"
-
-
-def format_score(score: Any, contexts: list[dict[str, Any]]) -> str:
-    """점수를 척도에 맞는 자릿수로 적는다.
-
-    RRF 점수는 0.041보다 커질 수 없어 소수 둘째 자리로 적으면
-    1위와 3위가 똑같이 `0.04`로 보인다.
+    낱말 검색으로만 올라온 조각은 유사도를 계산하지 않았다.
+    없는 숫자를 0으로 적으면 가장 안 비슷한 것처럼 보이므로 비워 둔다.
     """
     if not isinstance(score, (int, float)) or isinstance(score, bool):
         return "—"
-    digits = 3 if threshold_applies(contexts) else 4
-    return f"{score:.{digits}f}"
+    return f"{score:.3f}"
 
 
 RETRIEVAL_LABELS = {

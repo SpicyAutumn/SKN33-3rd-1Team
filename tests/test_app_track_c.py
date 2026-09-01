@@ -100,7 +100,7 @@ class EvidenceSelectionTest(unittest.TestCase):
 
 
 class EvidenceCheckerTest(unittest.TestCase):
-    """점수 기준선은 쓰지 않는다. 내용이 있으면 통과."""
+    """점수 기준선은 쓰지 않는다. 판단은 근거를 읽는 생성기에 맡긴다."""
 
     def setUp(self):
         self.checker = rag_client.ContentEvidenceChecker()
@@ -119,6 +119,27 @@ class EvidenceCheckerTest(unittest.TestCase):
 
     def test_no_contexts_is_insufficient(self):
         self.assertEqual(self.checker.decide("q", []), "insufficient")
+
+    def test_second_ask_defers_to_the_generator(self):
+        """RagService는 생성기가 근거 부족이라고 했을 때만 다시 물어본다.
+
+        늘 통과시키면 서비스가 불일치를 오류로 보고 예외를 던진다.
+        범위 밖 질문에서는 반드시 그렇게 된다.
+        """
+        contexts = [context(chunk_id="c1", document_id="d1", title="A")]
+        self.assertEqual(self.checker.decide("아이폰 가격", contexts), "sufficient")
+        self.assertEqual(self.checker.decide("아이폰 가격", contexts), "insufficient")
+
+    def test_a_different_question_starts_over(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="A")]
+        self.checker.decide("아이폰 가격", contexts)
+        self.assertEqual(self.checker.decide("경복궁에 대해 알려줘", contexts), "sufficient")
+
+    def test_the_next_question_is_not_blocked_by_the_previous_one(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="A")]
+        self.checker.decide("아이폰 가격", contexts)
+        self.checker.decide("아이폰 가격", contexts)
+        self.assertEqual(self.checker.decide("아이폰 가격", contexts), "sufficient")
 
 
 class GeneratorContractTest(unittest.TestCase):

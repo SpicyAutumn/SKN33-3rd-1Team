@@ -157,16 +157,37 @@ def compound_clarification(question: str) -> dict[str, Any]:
 
 
 class ContentEvidenceChecker:
-    """[제거 예정] 내용이 있는 조각이 하나라도 있으면 통과시키는 임시 판정기.
+    """[제거 예정] 내용이 있으면 통과시키고, 생성기가 부족하다고 하면 그 판단을 따른다.
 
-    점수 기준선은 쓰지 않는다. 팀 결정(2026-09-01)에 따라 하이브리드 검색에는
-    점수 기준선을 두지 않기로 했고, 점수만으로는 그 조각이 질문에 답하는지
-    증명할 수도 없다. 실제 판정기가 준비되면 이 클래스를 지운다.
+    점수나 규칙만으로는 그 조각이 질문에 답하는지 알 수 없다. 실제로 판단할 수
+    있는 것은 근거를 읽는 생성기뿐이다. 그래서 처음에는 통과시켜 생성기가 보게
+    하고, 같은 질문·같은 근거로 다시 물어오면 그 판단을 따른다. RagService는
+    생성기가 `insufficient_evidence`를 낸 경우에만 다시 물어본다.
+
+    그냥 늘 통과시키면 RagService가 판정기와 생성기의 불일치를 오류로 보고
+    `generator rejected evidence that passed the service grounding policy`를
+    던진다. 범위 밖 질문에서는 반드시 그렇게 된다.
+
+    실제 EvidenceChecker가 준비되면 이 클래스를 지운다.
     """
 
+    def __init__(self) -> None:
+        self._approved: tuple[str, tuple[str, ...]] | None = None
+
     def decide(self, question: str, contexts: list[dict[str, Any]]) -> str:
-        usable = any(str(c.get("content", "")).strip() for c in contexts)
-        return "sufficient" if usable else "insufficient"
+        usable = [c for c in contexts if str(c.get("content", "")).strip()]
+        if not usable:
+            self._approved = None
+            return "insufficient"
+
+        key = (question, tuple(str(c.get("chunk_id", "")) for c in usable))
+        if self._approved == key:
+            # 생성기가 이 근거로는 답할 수 없다고 했다. 그 판단이 더 정확하다.
+            self._approved = None
+            return "insufficient"
+
+        self._approved = key
+        return "sufficient"
 
 
 class EvidencePassthroughGenerator:

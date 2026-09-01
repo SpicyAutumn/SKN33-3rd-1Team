@@ -33,17 +33,17 @@ bm25_weight = 1.0
 
 ## Dev 3방식 평가 결과
 
-평가 대상은 PR #15 Dev의 `answered` 21건과 `corrected_premise` 4건, 총 25건이며 `top_k=3`이다. 상세 결과와 실행 조건은 [하이브리드 검색 평가 보고서](hybrid_retrieval_evaluation_report.md)에 기록한다.
+평가 대상은 PR #15 Dev의 `answered` 20건과 `corrected_premise` 5건, 총 25건이며 `top_k=3`이다. 상세 결과와 실행 조건은 [하이브리드 검색 평가 보고서](hybrid_retrieval_evaluation_report.md)에 기록한다.
 
 문화재 이름이 질문에 직접 들어간 경우는 일반 Dev 평균과 분리한 [문화재 고유명사 회귀 테스트](named_heritage_retrieval_regression_report.md)로 확인한다.
 
 | 검색 방식 | Hit@1 | Hit@3 | MRR | 평균 시간 |
 | --- | ---: | ---: | ---: | ---: |
-| Dense 단독 | **0.80 (20/25)** | 0.88 (22/25) | **0.827** | 0.590초 |
-| BM25 단독 | 0.20 (5/25) | 0.32 (8/25) | 0.260 | 0.451초 |
-| RRF 하이브리드 (1.5 : 1.0) | 0.76 (19/25) | **0.92 (23/25)** | 0.820 | 1.042초 (전체) |
+| Dense 단독 | 0.76 (19/25) | 0.88 (22/25) | 0.800 | 0.492초 |
+| BM25 단독 | 0.20 (5/25) | 0.32 (8/25) | 0.260 | 0.487초 |
+| RRF 하이브리드 (1.5 : 1.0) | **0.76 (19/25)** | **0.92 (23/25)** | **0.820** | 0.979초 (전체) |
 
-현재 설정의 하이브리드는 Dense보다 정답 문서를 상위 3개 안에 한 건 더 포함했지만, 1위 정확도와 MRR은 소폭 낮았다. 따라서 RAG가 여러 근거 청크를 받는 `top_k=3` 검색에서는 유효한 후보 확장 기준이지만, 1위 결과만 사용하는 화면·서비스의 확정 기본값으로 단정하지 않는다. Dense 가중치·`candidate_k`·문서당 청크 제한은 별도 실험으로 조정한다.
+현재 설정의 하이브리드는 Dense보다 정답 문서를 상위 3개 안에 한 건 더 포함했고, 1위 정확도는 같으며 MRR은 높았다. 따라서 RAG가 여러 근거 청크를 받는 `top_k=3` 검색의 현재 기준으로 사용한다. 다만 표본이 25개이므로, 화면·서비스의 확정 기본값은 Holdout과 고유명사 회귀 테스트를 확인한 뒤 결정한다. Dense 가중치·`candidate_k`·문서당 청크 제한은 별도 실험으로 조정한다.
 
 평가 결과의 시간은 다음처럼 구분한다. Dense의 `mean_query_seconds`는 질문 임베딩과 Pinecone 검색을 포함한 Dense 전체 시간이다. 하이브리드의 `mean_additional_processing_seconds`는 이미 얻은 Dense 후보에 BM25 검색과 RRF 결합을 더하는 데 걸린 시간이며, `mean_total_query_seconds`는 두 시간을 합친 하이브리드 전체 시간이다. 따라서 추가 처리 시간만 하이브리드 전체 시간으로 해석하지 않는다.
 
@@ -67,7 +67,7 @@ PINECONE_INDEX_HOST=인덱스-Host-주소
 # 2. 하이브리드 검색 결과 확인
 .\.venv\Scripts\python.exe scripts\search_hybrid_aks.py "경복궁에 대해 알려줘" --top-k 3
 
-# 3. PR #15 Dev 질문 중 answered 21건 + corrected_premise 4건으로
+# 3. PR #15 Dev 질문 중 answered 20건 + corrected_premise 5건으로
 #    Dense 단독·BM25 단독·하이브리드의 Hit@1·Hit@3·MRR 비교
 .\.venv\Scripts\python.exe scripts\evaluate_hybrid_retrieval.py --top-k 3
 

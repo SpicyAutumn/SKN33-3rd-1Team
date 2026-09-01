@@ -206,6 +206,9 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
   border-radius: 14px;
   background: var(--heritage-tint);
 }
+.map-root { position: relative; }
+/* 뿌리 카드 아래로는 첫 가지의 줄기가 32px 올라와 이어 준다.
+   카드 쪽에서 따로 선을 내리면 두 선이 어긋난다. */
 .map-root h3 { margin: .15rem 0 .6rem; font-family: var(--heritage-display); }
 .map-root-label {
   margin: 0;
@@ -215,6 +218,83 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
   opacity: .6;
 }
 .map-summary { margin: 0 0 .75rem; font-size: .92rem; line-height: 1.6; opacity: .85; }
+
+/* 탐험 지도 — 선으로 이은 가지.
+   그림은 CSS로 그리고 노드는 진짜 Streamlit 버튼으로 둔다. iframe 안에 그리면
+   눌러도 재탐색 신호를 보낼 수 없다. */
+[class*="st-key-heritage-branch-"] {
+  position: relative;
+  padding-left: 1.9rem;
+  padding-bottom: .5rem;
+}
+/* 세로 줄기.
+   가지 컨테이너 사이에 Streamlit이 16px 간격을 넣으므로 그만큼 늘려서 잇는다.
+   그러지 않으면 줄기가 가지마다 토막 난다. */
+[class*="st-key-heritage-branch-"]::before {
+  content: "";
+  position: absolute;
+  left: .5rem;
+  top: -16px;
+  bottom: -16px;
+  border-left: 2px solid var(--heritage-green-bright);
+}
+/* 첫 가지는 뿌리 카드까지 32px 올라가 만난다 */
+[class*="st-key-heritage-branch-0"]::before { top: -32px; }
+/* 마지막 가지는 제목 높이까지만 내린다. 아래로 더 갈 곳이 없다. */
+[class*="st-key-heritage-branch-"]:last-of-type::before {
+  bottom: auto;
+  height: calc(1rem + 16px);
+}
+/* 줄기에서 가지 제목으로 가는 팔꿈치 */
+[class*="st-key-heritage-branch-"]::after {
+  content: "";
+  position: absolute;
+  left: .5rem;
+  top: 1rem;
+  width: 1.1rem;
+  border-top: 2px solid var(--heritage-green-bright);
+}
+.map-branch-head { margin: 0 0 .1rem; }
+.map-branch-title {
+  display: inline-block;
+  padding: .18rem .7rem;
+  border: 1px solid var(--heritage-green-bright);
+  border-radius: 999px;
+  background: var(--heritage-tint-strong);
+  font-weight: 700;
+  font-size: .92rem;
+}
+.map-branch-note {
+  display: block;
+  margin: .3rem 0 0;
+  font-size: .8rem;
+  opacity: .62;
+  line-height: 1.5;
+}
+/* 가지 제목에서 노드로 내려가는 갈래 */
+[class*="st-key-heritage-branch-"] [data-testid="stHorizontalBlock"] {
+  position: relative;
+  margin-top: 1rem;
+}
+[class*="st-key-heritage-branch-"] [data-testid="stHorizontalBlock"]::before {
+  content: "";
+  position: absolute;
+  top: -.5rem;
+  left: 8%;
+  right: 8%;
+  border-top: 1px dashed var(--heritage-green-bright);
+  opacity: .7;
+}
+[class*="st-key-heritage-branch-"] [data-testid="stColumn"] { position: relative; }
+[class*="st-key-heritage-branch-"] [data-testid="stColumn"]::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -.5rem;
+  height: .5rem;
+  border-left: 1px dashed var(--heritage-green-bright);
+  opacity: .7;
+}
 .map-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
 .map-chip {
   padding: .22rem .6rem;
@@ -224,6 +304,14 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
   background: var(--heritage-tint-strong);
 }
 .map-chip b { margin-right: .3rem; opacity: .62; font-weight: 600; }
+.map-source {
+  display: inline-block;
+  margin-top: .7rem;
+  font-size: .82rem;
+  text-decoration: none;
+  opacity: .78;
+}
+.map-source:hover { opacity: 1; text-decoration: underline; }
 
 /* ── 유사도 막대 ──────────────────────────────────── */
 .eval-chart {

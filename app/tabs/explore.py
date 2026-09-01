@@ -109,8 +109,10 @@ def render() -> None:
         st.info("이 유산과 이어지는 항목을 찾지 못했습니다. 뒤로 돌아가 다른 길로 가 보세요.")
         return
 
-    for branch in branches:
-        _render_branch(branch)
+    with st.container(key="heritage-map"):
+        for index, branch in enumerate(branches):
+            with st.container(key=f"heritage-branch-{index}"):
+                _render_branch(branch)
 
 
 def _render_trail(searched) -> None:
@@ -145,15 +147,24 @@ def _render_root(root: dict) -> None:
         f'<h3>{escape(root["title"])}</h3>'
         + (f'<p class="map-summary">{escape(summary)}</p>' if summary else "")
         + f'<div class="map-chips">{chips}</div>'
-        "</div>"
+        + (
+            f'<a class="map-source" href="{escape(root["source_url"])}" target="_blank" '
+            'rel="noopener noreferrer">공식 원문 보기 ↗</a>'
+            if root.get("source_url")
+            else ""
+        )
+        + "</div>"
     )
-    if root.get("source_url"):
-        st.link_button("공식 원문 보기 ↗", root["source_url"])
+
 
 
 def _render_branch(branch: dict) -> None:
-    st.markdown(f"##### {branch['title']}")
-    st.caption(branch["note"])
+    st.html(
+        '<div class="map-branch-head">'
+        f'<span class="map-branch-title">{escape(branch["title"])}</span>'
+        f'<span class="map-branch-note">{escape(branch["note"])}</span>'
+        "</div>"
+    )
 
     nodes = branch["nodes"]
     for column, node in zip(st.columns(len(nodes)), nodes, strict=False):
@@ -166,7 +177,6 @@ def _render_branch(branch: dict) -> None:
             ):
                 _go(node["document_id"], node["title"])
                 st.rerun()
-            st.caption(node["reason"])
 
 
 def _node_help(node: dict) -> str:

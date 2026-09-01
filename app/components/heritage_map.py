@@ -1,51 +1,85 @@
-"""탐험 지도를 좌우 대칭 마인드맵으로 그린다.
+"""탐험 지도를 시계방향 무리로 그린다.
 
-처음에는 방사형으로 그렸는데 두 가지가 걸렸다. 곡선이 글자 위를 가로질러
-지저분해 보였고, 위아래로 몰린 이름을 놓을 자리가 없어 좌우 여백은 비는데
-가운데만 빽빽했다.
+가운데 유산을 두고 가지를 시계방향으로 다섯 자리에 놓는다. 자리마다 가지
+이름을 세우고 그 아래로 노드를 줄지어 내린다. 네 귀퉁이까지 쓰므로 화면
+여백이 놀지 않는다.
 
-가운데 유산을 두고 좌우로 가지를 나누면 두 문제가 함께 풀린다. 연결선은
-직각으로만 꺾여 글자를 지나가지 않고, 이름은 모두 가로로 놓여 긴 이름도
-들어간다. 한글은 한 글자가 글자 크기만큼 넓어서 가로 자리가 넉넉해야 한다.
+이름은 자르지 않는다. 한글은 한 글자가 글자 크기만큼 넓어서 긴 이름을 한
+줄로 두면 화면 밖으로 나간다. 그래서 긴 이름은 두 줄로 접는다. 잘라 버리면
+무엇인지 알 수 없어 누를 이유가 사라진다.
 
-`st.html`은 SVG를 통째로 걷어낸다. `st.markdown(unsafe_allow_html=True)`는
-`<linearGradient>`까지 그대로 남긴다. 그래서 이쪽을 쓴다.
+앞선 두 판에서 배운 것
 
-클릭은 SVG가 받지 않는다. `<a href="?…">`로 해 봤더니 주소가 바뀌면서 페이지가
-통째로 다시 열려 **세션 상태가 날아갔다.** 그래서 그림만 SVG로 그리고 노드
-자리마다 투명한 Streamlit 버튼을 겹친다. 좌표는 여기서 백분율로 넘긴다.
+- 방사형으로 뻗은 곡선은 글자 위를 가로질러 지저분했다. 연결선은 직각으로만
+  꺾는다.
+- 글자를 방사형으로 눕히면 아래쪽이 세로로 서서 못 읽는다. 전부 가로로 둔다.
+- `st.html`은 SVG를 통째로 걷어낸다. `st.markdown(unsafe_allow_html=True)`는
+  `<linearGradient>`까지 남긴다.
+- 클릭은 SVG가 받지 않는다. `<a href="?…">`는 주소가 바뀌면서 페이지를 다시
+  열어 **세션 상태를 날린다.** 그림만 SVG로 그리고 노드 자리마다 투명한
+  Streamlit 버튼을 겹친다. 좌표는 여기서 백분율로 넘긴다.
 """
 
 from __future__ import annotations
 
+import math
 from html import escape
 from typing import Any
 
 # 가지마다 다른 색. 청자 녹색과 단청 색조에서 가져왔다.
 BRANCH_COLORS = ("#F0CE87", "#5FC1A0", "#8FCBE0", "#E0A277", "#BFA3D8")
 
-WIDTH = 980
-HEIGHT = 680
+WIDTH = 1040
+HEIGHT = 900
 CENTER_X = WIDTH / 2
 CENTER_Y = HEIGHT / 2
 
 ROOT_W, ROOT_H, ROOT_R = 230, 92, 22
 
-# 오른쪽 기준값. 왼쪽은 가운데를 기준으로 뒤집어 쓴다.
-SPINE_DX = 140          # 가운데에서 세로 줄기까지
-PILL_DX = 230           # 가운데에서 가지 이름 안쪽 끝까지
+# 가운데에서 가지 이름까지. 이름이 길어 자리가 모자라면 이 값을 줄인다.
+CLUSTER_RX, CLUSTER_RY = 286, 230
+TOP_CLUSTER_DY = 130    # 12시 무리는 줄이 위로 뻗으므로 가운데에 바짝 붙인다
+TOP_CLUSTER_DX = 92     # 점이 이름을 뚫지 않게 오른쪽으로 민다
+
 PILL_W, PILL_H = 150, 38
-STEM_DX = 265           # 노드로 내려가는 세로선
-DOT_DX = 320            # 노드 점
-TEXT_GAP = 15           # 점에서 글자까지
+ROW_H = 34              # 노드 한 줄. 두 줄 이름이 들어가므로 넉넉히 둔다.
+HEAD_GAP = 34           # 가지 이름에서 첫 노드까지
+DOT_GAP = 14            # 점에서 글자까지
+LINE_H = 17
 
-ROW_H = 32              # 노드 한 줄 높이
-HEAD_GAP = 40           # 가지 이름에서 첫 노드까지
-BRANCH_GAP = 26         # 가지 사이 여백
+NODE_FONT = 19
+BRANCH_FONT = 17
+WRAP_AT = 7             # 이보다 길면 두 줄로 접는다
 
-NODE_FONT = 18
-NODE_LIMIT = 9          # 한글 9자면 162. 오른쪽 끝까지 딱 들어간다.
-BRANCH_LIMIT = 8
+# 12시부터 시계방향으로 다섯 자리. 사람이 시계를 읽는 순서와 같다.
+CLUSTER_ANGLES = (-90.0, -18.0, 54.0, 126.0, 198.0)
+
+# 노드 줄이 뻗는 방향. 12시 무리는 위로 올라간다. 아래로 내리면 줄이 그대로
+# 가운데 유산을 덮어 버린다. 나머지는 가지 이름 아래로 내려간다.
+CLUSTER_GROWS_UP = (True, False, False, False, False)
+
+
+def wrap_label(text: str, limit: int = WRAP_AT) -> list[str]:
+    """긴 이름을 두 줄로 접는다. 자르지 않는다.
+
+    띄어쓰기가 있으면 가운데에 가장 가까운 자리에서 나눈다. 없으면 반으로
+    나눈다. `서울 문묘 및 성균관`을 한 줄로 두면 200이 넘어 화면을 벗어난다.
+    """
+    text = text.strip()
+    if len(text) <= limit:
+        return [text]
+    spaces = [i for i, ch in enumerate(text) if ch == " "]
+    if spaces:
+        middle = len(text) / 2
+        cut = min(spaces, key=lambda i: abs(i - middle))
+        return [text[:cut].strip(), text[cut + 1 :].strip()]
+    cut = math.ceil(len(text) / 2)
+    return [text[:cut], text[cut:]]
+
+
+def _label_width(lines: list[str], font: int) -> float:
+    """한글 기준 가로 폭. 한 글자가 글자 크기만큼 넓다고 본다."""
+    return max((len(line) for line in lines), default=0) * font
 
 
 def _shorten(text: str, limit: int) -> str:
@@ -54,11 +88,10 @@ def _shorten(text: str, limit: int) -> str:
 
 
 def _elbow(x1: float, y1: float, x2: float, y2: float, radius: float = 12) -> str:
-    """직각으로 꺾이는 연결선. 모서리만 둥글린다.
-
-    곡선으로 이으면 선이 글자 위를 지나간다. 직각으로 꺾으면 지나갈 일이 없다.
-    """
+    """직각으로 꺾이는 연결선. 곡선으로 이으면 글자 위를 지나간다."""
     if abs(y1 - y2) < 1:
+        return f"M{x1:.1f},{y1:.1f} L{x2:.1f},{y2:.1f}"
+    if abs(x1 - x2) < 1:
         return f"M{x1:.1f},{y1:.1f} L{x2:.1f},{y2:.1f}"
     sweep_x = 1 if x2 > x1 else -1
     sweep_y = 1 if y2 > y1 else -1
@@ -114,31 +147,31 @@ def _root(title: str) -> str:
     )
 
 
-def _split(branches: list[dict[str, Any]]) -> tuple[list[int], list[int]]:
-    """가지를 좌우로 나눈다. 노드가 많은 쪽부터 번갈아 붙여 양쪽 높이를 맞춘다."""
-    order = sorted(range(len(branches)), key=lambda i: -len(branches[i].get("nodes") or []))
-    right: list[int] = []
-    left: list[int] = []
-    right_rows = left_rows = 0
-    for index in order:
-        rows = len(branches[index].get("nodes") or [])
-        if right_rows <= left_rows:
-            right.append(index)
-            right_rows += rows
-        else:
-            left.append(index)
-            left_rows += rows
-    return sorted(right), sorted(left)
+def _cluster_spot(angle: float) -> tuple[float, float, str]:
+    """가지 자리와 글자 방향. 오른쪽 무리는 오른쪽으로, 왼쪽 무리는 왼쪽으로 쓴다."""
+    radians = math.radians(angle)
+    cosine = math.cos(radians)
+    x = CENTER_X + CLUSTER_RX * cosine
+    if abs(cosine) < 0.2:
+        # 12시 무리는 줄이 위로 뻗는다. 가운데 유산에 바짝 붙여야 위쪽 다섯 줄이
+        # 화면 안에 들어온다. 자리가 모자랄 때 줄일 곳은 이 간격이다.
+        #
+        # 자리를 오른쪽으로 조금 밀어 다른 무리와 같은 방식으로 쓴다. 가운데
+        # 정렬로 두면 점이 이름 한가운데를 뚫고 지나간다.
+        return x + TOP_CLUSTER_DX, CENTER_Y - TOP_CLUSTER_DY, "start"
+    return x, CENTER_Y + CLUSTER_RY * math.sin(radians), "start" if cosine > 0 else "end"
 
 
-def _side_height(branches: list[dict[str, Any]], indexes: list[int]) -> float:
-    if not indexes:
-        return 0.0
-    total = 0.0
-    for index in indexes:
-        rows = max(len(branches[index].get("nodes") or []), 1)
-        total += HEAD_GAP + rows * ROW_H + BRANCH_GAP
-    return total - BRANCH_GAP
+def _node_text(x: float, y: float, anchor: str, lines: list[str]) -> str:
+    first = y if len(lines) == 1 else y - LINE_H / 2
+    spans = "".join(
+        f'<tspan x="{x:.1f}" dy="{0 if i == 0 else LINE_H}">{escape(line)}</tspan>'
+        for i, line in enumerate(lines)
+    )
+    return (
+        f'<text class="hm-label" x="{x:.1f}" y="{first + 6:.1f}" text-anchor="{anchor}" '
+        f'font-size="{NODE_FONT}" font-weight="600">{spans}</text>'
+    )
 
 
 def render(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
@@ -153,70 +186,62 @@ def render(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
         _defs(),
     ]
     hits: list[dict[str, Any]] = []
-    right, left = _split(branches)
     delay = 0.0
 
-    for indexes, side in ((right, 1), (left, -1)):
-        if not indexes:
-            continue
-        spine_x = CENTER_X + SPINE_DX * side
-        cursor = CENTER_Y - _side_height(branches, indexes) / 2
+    for index, branch in enumerate(branches[: len(CLUSTER_ANGLES)]):
+        color = BRANCH_COLORS[index % len(BRANCH_COLORS)]
+        nodes = branch.get("nodes") or []
+        cx, cy, anchor = _cluster_spot(CLUSTER_ANGLES[index])
+        direction = 0 if anchor == "middle" else (1 if anchor == "start" else -1)
 
-        for index in indexes:
-            branch = branches[index]
-            color = BRANCH_COLORS[index % len(BRANCH_COLORS)]
-            nodes = branch.get("nodes") or []
-            head_y = cursor + PILL_H / 2
+        pill_x = cx - PILL_W / 2
+        parts.append(
+            f'<g class="hm-branch" style="--d:{delay:.2f}s">'
+            f'<path class="hm-stem" d="{_elbow(CENTER_X, CENTER_Y, cx, cy)}" '
+            f'stroke="{color}" stroke-width="2.5" fill="none" stroke-opacity=".45"/>'
+            f'<rect x="{pill_x:.1f}" y="{cy - PILL_H / 2:.1f}" width="{PILL_W}" '
+            f'height="{PILL_H}" rx="{PILL_H / 2:.0f}" fill="#12352C" fill-opacity=".92" '
+            f'stroke="{color}" stroke-width="1.8"/>'
+            f'<text x="{cx:.1f}" y="{cy + 6:.1f}" text-anchor="middle" '
+            f'font-size="{BRANCH_FONT}" font-weight="700" fill="{color}">'
+            f"{escape(_shorten(str(branch.get('title', '')), 9))}</text>"
+            "</g>"
+        )
+        delay += 0.1
 
-            pill_near = CENTER_X + PILL_DX * side
-            pill_x = pill_near if side > 0 else pill_near - PILL_W
-            stem_x = CENTER_X + STEM_DX * side
-            dot_x = CENTER_X + DOT_DX * side
-
-            parts.append(
-                f'<g class="hm-branch" style="--d:{delay:.2f}s">'
-                f'<path class="hm-stem" d="{_elbow(spine_x, CENTER_Y, pill_near, head_y)}" '
-                f'stroke="{color}" stroke-width="2.5" fill="none" stroke-opacity=".55"/>'
-                f'<rect x="{pill_x:.1f}" y="{cursor:.1f}" width="{PILL_W}" height="{PILL_H}" '
-                f'rx="{PILL_H / 2:.0f}" fill="#12352C" fill-opacity=".92" '
-                f'stroke="{color}" stroke-width="1.8"/>'
-                f'<text x="{pill_x + PILL_W / 2:.1f}" y="{head_y + 6:.1f}" text-anchor="middle" '
-                f'font-size="17" font-weight="700" fill="{color}">'
-                f"{escape(_shorten(str(branch.get('title', '')), BRANCH_LIMIT))}</text>"
-                "</g>"
+        # 노드는 가지 이름 아래로 줄지어 내린다. 점은 이름 쪽 끝에 붙인다.
+        grows_up = CLUSTER_GROWS_UP[index % len(CLUSTER_GROWS_UP)]
+        step = -1 if grows_up else 1
+        dot_x = cx + (PILL_W / 2 - 8) * direction if direction else cx
+        row_y = cy + step * (HEAD_GAP + ROW_H / 2)
+        stem_x = cx
+        for order, node in enumerate(nodes, start=1):
+            lines = wrap_label(str(node.get("title", "")))
+            text_x = dot_x + DOT_GAP * direction if direction else cx
+            hits.append(
+                {
+                    "key": f"hm-hit-{index}-{order}",
+                    "document_id": str(node.get("document_id", "")),
+                    "title": str(node.get("title", "")),
+                    "reason": str(node.get("reason", "")),
+                    "left": dot_x / WIDTH * 100,
+                    "top": row_y / HEIGHT * 100,
+                }
             )
-            delay += 0.1
-
-            row_y = cursor + HEAD_GAP + ROW_H / 2
-            for order, node in enumerate(nodes, start=1):
-                label = _shorten(str(node.get("title", "")), NODE_LIMIT)
-                hits.append(
-                    {
-                        "key": f"hm-hit-{index}-{order}",
-                        "document_id": str(node.get("document_id", "")),
-                        "title": str(node.get("title", "")),
-                        "reason": str(node.get("reason", "")),
-                        "left": dot_x / WIDTH * 100,
-                        "top": row_y / HEIGHT * 100,
-                    }
-                )
-                parts.append(
-                    f'<g class="hm-node" style="--d:{delay:.2f}s">'
-                    f'<path class="hm-link" d="{_elbow(stem_x, head_y, dot_x, row_y)}" '
-                    f'stroke="{color}" stroke-width="1.8" fill="none" stroke-opacity=".4"/>'
-                    f'<circle class="hm-halo" cx="{dot_x:.1f}" cy="{row_y:.1f}" r="22" '
-                    f'fill="url(#glow{index % len(BRANCH_COLORS)})"/>'
-                    f'<circle class="hm-dot" cx="{dot_x:.1f}" cy="{row_y:.1f}" r="7" '
-                    f'fill="{color}" stroke="#12352C" stroke-width="2"/>'
-                    f'<text class="hm-label" x="{dot_x + TEXT_GAP * side:.1f}" '
-                    f'y="{row_y + 6:.1f}" text-anchor="{"start" if side > 0 else "end"}" '
-                    f'font-size="{NODE_FONT}" font-weight="600">{escape(label)}</text>'
-                    "</g>"
-                )
-                row_y += ROW_H
-                delay += 0.04
-
-            cursor += HEAD_GAP + max(len(nodes), 1) * ROW_H + BRANCH_GAP
+            parts.append(
+                f'<g class="hm-node" style="--d:{delay:.2f}s">'
+                f'<path class="hm-link" d="{_elbow(stem_x, cy + step * PILL_H / 2, dot_x, row_y)}" '
+                f'stroke="{color}" stroke-width="1.6" fill="none" stroke-opacity=".35"/>'
+                f'<circle class="hm-halo" cx="{dot_x:.1f}" cy="{row_y:.1f}" r="22" '
+                f'fill="url(#glow{index % len(BRANCH_COLORS)})"/>'
+                f'<circle class="hm-dot" cx="{dot_x:.1f}" cy="{row_y:.1f}" r="7" '
+                f'fill="{color}" stroke="#12352C" stroke-width="2"/>'
+                + _node_text(text_x, row_y, anchor if direction else "middle", lines)
+                + "</g>"
+            )
+            # 두 줄짜리 이름은 아랫줄이 다음 점에 닿지 않도록 한 줄만큼 더 띄운다.
+            row_y += step * (ROW_H + (LINE_H + 6 if len(lines) > 1 else 0))
+            delay += 0.04
 
     parts.append(_root(str((payload.get("root") or {}).get("title", ""))))
     parts.append("</svg></div>")

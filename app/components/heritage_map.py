@@ -192,7 +192,9 @@ def render(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
         # 자리가 그만큼 밖으로 밀려 긴 이름이 화면을 벗어난다.
         dot_x = cx - (PILL_W / 2 - 10) * direction
         row_y = cy + step * (HEAD_GAP + ROW_H / 2)
-        stem_x = cx
+        # 세로 줄기는 점과 같은 x에 세운다. 가지 이름 한가운데에 세우면 이름이
+        # 그 줄을 가로질러 글자 위에 선이 그어진다. 점을 꿴 곧은 줄이 낫다.
+        stem_x = dot_x
         for order, node in enumerate(nodes, start=1):
             label = str(node.get("title", "")).strip()
             text_x = dot_x + DOT_GAP * direction

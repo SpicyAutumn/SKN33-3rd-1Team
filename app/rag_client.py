@@ -156,6 +156,47 @@ def compound_clarification(question: str) -> dict[str, Any]:
     }
 
 
+# 이 서비스의 근거는 한국민족문화대백과사전 한 벌뿐이다. 아래 낱말이 묻는
+# 값은 어느 시점의 백과사전에도 들어 있지 않다. 검색은 성공할 수 있어서
+# 점수로는 걸러지지 않는다. `현대자동차㈜`도 `서울특별시`도 실제 항목이다.
+NEVER_IN_SOURCE = (
+    "주가", "시세", "환율", "코스피", "코스닥", "시가총액", "금리", "분양가",
+    "항공권", "예매", "배송", "맛집", "실시간",
+    "파이썬", "자바스크립트", "코딩", "소스코드", "프로그래밍",
+    "번역해", "레시피",
+)
+
+# 아래 낱말은 백과사전에도 나온다. `조선시대 날씨 기록`은 답할 수 있는 질문이다.
+# 지금 시점을 묻는 표시가 함께 있을 때만 범위 밖으로 본다.
+LIVE_ONLY = ("날씨", "기온", "강수", "미세먼지", "주식", "가격", "얼마")
+NOW_MARKERS = ("오늘", "지금", "현재", "요즘", "내일", "이번 주", "올해")
+
+
+class TopicScopeChecker:
+    """검색 전에 범위 밖 질문을 걸러낸다.
+
+    범위 판정은 근거 충분성과 다른 문제다. `현대자동차 주가`는 검색이
+    성공한다. 백과사전에 `현대자동차㈜` 항목이 실제로 있기 때문이다.
+    그러면 생성기는 회사 연혁으로 답을 만들어 버린다. 물어본 것은 주가인데
+    엉뚱한 것을 답하는 셈이다. `오늘 서울 날씨`는 더 나쁘다. `서울특별시`
+    항목의 기후 설명을 근거 삼아 오늘 날씨를 지어냈다.
+
+    여기서 막으면 검색도 생성도 하지 않으므로 지어낼 여지가 없다.
+
+    복합 질문에서는 멀쩡한 질문을 막지 않는 쪽을 택했지만 여기서는 반대다.
+    걸러진 질문은 자료에 답이 없어 어차피 답할 수 없고, 사용자는 다시
+    물으면 된다. 반대로 놓치면 없는 사실을 지어낸다.
+    """
+
+    def is_in_scope(self, question: str) -> bool:
+        text = str(question or "")
+        if any(term in text for term in NEVER_IN_SOURCE):
+            return False
+        if any(term in text for term in LIVE_ONLY) and any(m in text for m in NOW_MARKERS):
+            return False
+        return True
+
+
 class ContentEvidenceChecker:
     """[제거 예정] 내용이 있으면 통과시키고, 생성기가 부족하다고 하면 그 판단을 따른다.
 
@@ -371,4 +412,5 @@ def build_service():
         retriever=build_retriever(),
         generator=CompoundAwareGenerator(OllamaGenerator()),
         evidence_checker=ContentEvidenceChecker(),
+        scope_checker=TopicScopeChecker(),
     )

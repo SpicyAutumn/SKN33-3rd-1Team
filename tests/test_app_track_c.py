@@ -479,5 +479,47 @@ class EnvPlaceholderTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"OLLAMA_BASE_URL": "https://abc-11434.proxy.runpod.net"}):
             self.assertNotIn("OLLAMA_BASE_URL", rag_client.missing_env())
 
+class ScopeCheckerTest(unittest.TestCase):
+    """범위 판정은 근거 충분성과 다른 문제다. 점수로는 걸러지지 않는다."""
+
+    OUT = [
+        "현대자동차 주가 알려",      # 현대자동차㈜는 백과사전에 있다. 주가가 없을 뿐이다.
+        "오늘 서울 날씨 어때",        # 서울특별시 항목의 기후 설명으로 오늘 날씨를 지어냈다.
+        "비트코인 시세",
+        "파이썬 for문 예제 알려줘",
+        "강남 맛집 추천",
+        "이 문장 번역해줘",
+    ]
+    IN = [
+        "경복궁에 대해 알려줘",
+        "석굴암 본존불의 특징은?",
+        "훈민정음은 무엇인가요?",
+        "측우기는 어떻게 날씨를 재나요?",       # `날씨`가 들어가도 지금을 묻지 않는다
+        "조선시대 날씨 기록은 어떻게 남겼나요?",
+        "조선시대 쌀 가격은 어땠나요?",         # `가격`도 마찬가지다
+    ]
+
+    def setUp(self):
+        self.checker = rag_client.TopicScopeChecker()
+
+    def test_questions_the_source_can_never_answer_are_blocked(self):
+        for question in self.OUT:
+            with self.subTest(question=question):
+                self.assertFalse(self.checker.is_in_scope(question))
+
+    def test_heritage_questions_pass(self):
+        for question in self.IN:
+            with self.subTest(question=question):
+                self.assertTrue(self.checker.is_in_scope(question))
+
+    def test_live_words_alone_do_not_block(self):
+        """`날씨`가 들어갔다고 막으면 측우기 질문을 막게 된다."""
+        self.assertTrue(self.checker.is_in_scope("조선의 날씨 관측 기구"))
+        self.assertFalse(self.checker.is_in_scope("지금 날씨"))
+
+    def test_empty_question_is_not_blocked_here(self):
+        """빈 질문은 RagService가 먼저 거른다. 범위 판정이 대신 막지 않는다."""
+        self.assertTrue(self.checker.is_in_scope(""))
+
 if __name__ == "__main__":
     unittest.main()

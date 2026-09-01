@@ -19,6 +19,9 @@ if str(PROJECT_ROOT / "src") not in sys.path:
 
 REQUIRED_ENV = ("OPENAI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX_NAME")
 
+# 로컬 BM25 인덱스. Pinecone과 달리 공용이 아니라 각자 만들어야 한다.
+DEFAULT_BM25_INDEX_PATH = PROJECT_ROOT / "data" / "processed" / "aks_bm25_v1.sqlite3"
+
 # [제거 예정] 근거 충분성 판정은 생성·평가 담당의 EvidenceChecker가 맡는다.
 # 그 구현이 나오기 전까지 화면이 무엇도 답하지 못하는 상태를 막기 위한 임시값이다.
 # 값 근거: 범위 안 질문 최저 0.440, 범위 밖 질문 최고 0.335 (2026-08-31 실측)
@@ -154,17 +157,49 @@ class EvidencePassthroughGenerator:
         }
 
 
+def bm25_index_path() -> Path:
+    """로컬 BM25 인덱스 위치. `AKS_BM25_INDEX_PATH`로 덮어쓸 수 있다."""
+    load_env()
+    override = os.getenv("AKS_BM25_INDEX_PATH", "").strip()
+    return Path(override) if override else DEFAULT_BM25_INDEX_PATH
+
+
+def retrieval_mode() -> str:
+    """이번 실행이 쓰는 검색 방식. `hybrid` 또는 `dense`."""
+    return "hybrid" if bm25_index_path().is_file() else "dense"
+
+
+def build_retriever():
+    """BM25 인덱스가 있으면 하이브리드, 없으면 Pinecone 단독으로 검색한다.
+
+    BM25 인덱스는 Pinecone과 달리 공용이 아니라 각자 로컬에서 만들어야 한다
+    (`scripts/build_aks_bm25.py`). 인덱스가 없다고 화면이 죽으면 아직 만들지
+    않은 사람은 아무것도 볼 수 없으므로, 없으면 조용히 단독 검색으로 내린다.
+    어느 쪽으로 검색했는지는 공정 견학 탭에 그대로 표시한다.
+    """
+    from rag_indexing.pinecone_store import PineconeRetriever
+
+    dense = PineconeRetriever()
+    path = bm25_index_path()
+    if not path.is_file():
+        return dense
+
+    from rag_indexing.bm25_store import BM25Retriever
+    from rag_indexing.hybrid_retriever import HybridRetriever
+
+    return HybridRetriever(dense, BM25Retriever(path))
+
+
 def build_service():
     """RagService를 조립한다. 키가 없으면 RuntimeError."""
     absent = missing_env()
     if absent:
         raise RuntimeError(f"환경 변수 미설정: {', '.join(absent)}")
 
-    from rag_indexing.pinecone_store import PineconeRetriever
     from rag_service.service import RagService
 
     return RagService(
-        retriever=PineconeRetriever(),
+        retriever=build_retriever(),
         generator=EvidencePassthroughGenerator(),
         evidence_checker=ScoreEvidenceChecker(),
     )

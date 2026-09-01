@@ -84,6 +84,17 @@ def _render_flow(result, response, contexts, used_ids, scores, passed, dropped, 
     graded = retrieval.threshold_applies(contexts)
     score_name = retrieval.score_label(contexts)
     score_range = f"{max(scores):.3f} ~ {min(scores):.3f}" if scores else "점수 없음"
+    mode = retrieval.retrieval_mode()
+    if mode == "hybrid":
+        search_detail = (
+            "뜻이 가까운 조각과 <b>같은 낱말이 든 조각</b>을 따로 찾아, 두 순위를 합칩니다."
+            f"<br><span class='process-note'>{retrieval.retrieval_label()} · 상위 {len(contexts)}개</span>"
+        )
+    else:
+        search_detail = (
+            f"백과사전을 잘라 둔 조각들과 하나씩 비교해 <b>가까운 순서로 {len(contexts)}개</b>를 고릅니다."
+            f"<br><span class='process-note'>{retrieval.retrieval_label()} · 낱말 검색 인덱스 없음</span>"
+        )
 
     stages = [
         _stage(
@@ -95,8 +106,7 @@ def _render_flow(result, response, contexts, used_ids, scores, passed, dropped, 
         _stage(
             2,
             "‘공식 자료를 검색하고 있습니다…’",
-            f"백과사전을 잘라 둔 조각들과 하나씩 비교해 <b>가까운 순서로 {len(contexts)}개</b>를 고릅니다."
-            f"<br><span class='process-note'>{score_name} {score_range}</span>",
+            f"{search_detail}<br><span class='process-note'>{score_name} {score_range}</span>",
         ),
         _stage(
             3,

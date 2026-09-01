@@ -10,10 +10,12 @@ from typing import Any
 
 import rag_client
 from rag_client import (  # noqa: F401 - 화면에서 그대로 사용한다
+    bm25_index_path,
     is_live,
     is_threshold_comparable,
     meets_threshold,
     missing_env,
+    retrieval_mode,
 )
 
 REQUIRED_ENV = rag_client.REQUIRED_ENV
@@ -41,6 +43,17 @@ def threshold_applies(contexts: list[dict[str, Any]]) -> bool:
 def score_label(contexts: list[dict[str, Any]]) -> str:
     """점수 종류에 맞는 화면 표기. 하이브리드 검색은 유사도가 아니다."""
     return "유사도" if threshold_applies(contexts) else "관련도"
+
+
+RETRIEVAL_LABELS = {
+    "hybrid": "하이브리드 검색 (의미 + 단어)",
+    "dense": "의미 검색 단독",
+}
+
+
+def retrieval_label() -> str:
+    """이번 실행의 검색 방식 표기."""
+    return RETRIEVAL_LABELS.get(retrieval_mode(), "알 수 없음")
 
 
 def shift_level(level: str, step: int) -> str:

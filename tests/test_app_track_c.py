@@ -5,9 +5,11 @@ Streamlit 실행 없이 순수 함수만 확인한다. 외부 API는 호출하�
 
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 for path in (PROJECT_ROOT / "app", PROJECT_ROOT / "src"):
@@ -313,6 +315,26 @@ class ThresholdDisplayTest(unittest.TestCase):
 
     def test_no_contexts_is_ungraded(self):
         self.assertFalse(retrieval.threshold_applies([]))
+
+class RetrievalModeTest(unittest.TestCase):
+    """BM25 인덱스는 각자 만들어야 한다. 없다고 화면이 멈추면 안 된다."""
+
+    def test_missing_index_falls_back_to_dense(self):
+        absent = str(PROJECT_ROOT / "data" / "processed" / "없는파일.sqlite3")
+        with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": absent}):
+            self.assertEqual(rag_client.retrieval_mode(), "dense")
+            self.assertEqual(retrieval.retrieval_label(), "의미 검색 단독")
+
+    def test_existing_index_selects_hybrid(self):
+        present = str(Path(__file__).resolve())
+        with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": present}):
+            self.assertEqual(rag_client.retrieval_mode(), "hybrid")
+            self.assertIn("하이브리드", retrieval.retrieval_label())
+
+    def test_override_wins_over_default_path(self):
+        override = str(Path(__file__).resolve())
+        with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": override}):
+            self.assertEqual(rag_client.bm25_index_path(), Path(override))
 
 if __name__ == "__main__":
     unittest.main()

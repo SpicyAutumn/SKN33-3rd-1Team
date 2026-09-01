@@ -2,6 +2,8 @@
 
 import streamlit as st
 
+import retrieval
+
 
 def render() -> None:
     st.subheader("답변이 만들어지는 과정")
@@ -29,7 +31,7 @@ def render() -> None:
             score = context.get("retrieval_score")
             used = context.get("chunk_id") in used_chunk_ids
             label = "✅ 답변에 사용됨" if used else "검색 결과"
-            score_text = f" · 유사도 {score:.2f}" if isinstance(score, (int, float)) else ""
+            score_text = f" · 유사도 {retrieval.format_score(score)}" if score is not None else ""
             with st.expander(f"{rank}위 · {context.get('title', '제목 없음')}{score_text} · {label}", expanded=used):
                 st.write(context.get("content", "본문 없음"))
                 st.caption(f"section: {context.get('section', '없음')} · chunk_id: {context.get('chunk_id', '없음')}")

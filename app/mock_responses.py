@@ -77,8 +77,13 @@ RESPONSES = {
         "related_keywords": [],
         "citations": [],
         "clarification": {
+            "reason_code": "ambiguous_entity",
             "question": "어떤 궁궐을 말씀하시는지 알려주시겠어요?",
-            "options": ["경복궁", "창덕궁", "덕수궁"],
+            "options": [
+                {"id": "option-1", "label": "경복궁", "source_chunk_ids": []},
+                {"id": "option-2", "label": "창덕궁", "source_chunk_ids": []},
+                {"id": "option-3", "label": "덕수궁", "source_chunk_ids": []},
+            ],
         },
         "premise_correction": None,
     },

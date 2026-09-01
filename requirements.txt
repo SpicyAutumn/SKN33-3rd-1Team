@@ -5,6 +5,7 @@
 python-dotenv
 pandas
 pypdf
+requests
 
 # LLM / RAG
 openai
@@ -17,6 +18,6 @@ pinecone
 langchain-pinecone
 
 # Application and test
-streamlit
+# st.iframe과 st.html을 사용합니다. 아래는 동작을 확인한 버전입니다.
+streamlit>=1.62
 pytest
-

@@ -99,6 +99,10 @@ def _normalise_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         if isinstance(aliases, list)
         else []
     )
+    document_fingerprint = _nullable_text(normalised.get("document_fingerprint"))
+    if document_fingerprint is None:
+        raise ValueError("BM25 metadata.document_fingerprint must be a non-empty string")
+    normalised["document_fingerprint"] = document_fingerprint
     # The operational corpus is V1 and did not persist this trace value.
     normalised.setdefault("chunking_fingerprint", None)
     return normalised
@@ -249,6 +253,7 @@ def build_bm25_index(
             metadata = chunk.get("metadata")
             if not isinstance(metadata, dict):
                 metadata = {}
+            metadata = _normalise_metadata(metadata)
             aliases = metadata.get("aliases")
             aliases_text = " ".join(str(alias) for alias in aliases) if isinstance(aliases, list) else ""
             values = (

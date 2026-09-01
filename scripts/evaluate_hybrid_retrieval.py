@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -27,6 +29,19 @@ EVALUATED_RESPONSE_TYPES = {"answered", "corrected_premise"}
 
 def select_retrieval_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [case for case in cases if case["expected_response_type"] in EVALUATED_RESPONSE_TYPES]
+
+
+def load_bm25_manifest(database_path: Path) -> dict[str, Any] | None:
+    path = database_path.with_suffix(f"{database_path.suffix}.manifest.json")
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"BM25 manifest is not valid JSON: {path}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"BM25 manifest must be a JSON object: {path}")
+    return value
 
 
 def evaluate(retriever: Retriever, cases: list[dict[str, Any]], *, top_k: int) -> dict[str, Any]:
@@ -136,7 +151,7 @@ def evaluate_comparison(
         hybrid_hit = f"{hybrid_result['hit_rank']}위" if hybrid_result["hit_rank"] else f"top-{top_k} 실패"
         print(f"[{number}/{len(cases)}] {case['case_id']}: Dense {dense_hit} / Hybrid {hybrid_hit}", flush=True)
 
-    def summarise(evaluations: list[dict[str, Any]], durations: list[float]) -> dict[str, Any]:
+    def summarise(evaluations: list[dict[str, Any]]) -> dict[str, Any]:
         count = len(evaluations)
         type_counts = Counter(item["expected_response_type"] for item in evaluations)
         return {
@@ -144,7 +159,6 @@ def evaluate_comparison(
             "response_type_counts": dict(sorted(type_counts.items())),
             "hit_at_k": sum(item["hit_rank"] is not None for item in evaluations) / count,
             "mrr": sum(item["reciprocal_rank"] for item in evaluations) / count,
-            "mean_query_seconds": sum(durations) / count,
             "hits_by_response_type": {
                 response_type: sum(
                     item["hit_rank"] is not None
@@ -157,8 +171,21 @@ def evaluate_comparison(
         }
 
     return {
-        "dense": summarise(dense_evaluations, dense_durations),
-        "hybrid": summarise(hybrid_evaluations, hybrid_durations),
+        "dense": {
+            **summarise(dense_evaluations),
+            "mean_query_seconds": sum(dense_durations) / len(dense_durations),
+        },
+        "hybrid": {
+            **summarise(hybrid_evaluations),
+            # Dense candidates are intentionally reused, so this measures only
+            # the additional local BM25 + RRF work.
+            "mean_additional_processing_seconds": sum(hybrid_durations) / len(hybrid_durations),
+            "mean_total_query_seconds": sum(
+                dense_duration + hybrid_duration
+                for dense_duration, hybrid_duration in zip(dense_durations, hybrid_durations, strict=True)
+            )
+            / len(dense_durations),
+        },
     }
 
 
@@ -190,19 +217,33 @@ def main() -> int:
     )
     comparison = evaluate_comparison(dense, hybrid, cases, top_k=args.top_k)
     report = {
+        "executed_at_utc": datetime.now(timezone.utc).isoformat(),
         "cases_file": str(args.cases),
         "top_k": args.top_k,
         "candidate_k": args.candidate_k,
         "rrf_k": args.rrf_k,
         "dense_weight": args.dense_weight,
         "bm25_weight": args.bm25_weight,
+        "reproducibility": {
+            "bm25_database": str(args.bm25_database),
+            "bm25_manifest": load_bm25_manifest(args.bm25_database),
+            "pinecone_index": os.getenv("PINECONE_INDEX_NAME") or None,
+            "pinecone_namespace": os.getenv("PINECONE_NAMESPACE") or "__default__",
+            "embedding_model": os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+        },
         **comparison,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     summary = {
-        name: {key: result[key] for key in ("case_count", "hit_at_k", "mrr", "mean_query_seconds")}
-        for name, result in (("dense", report["dense"]), ("hybrid", report["hybrid"]))
+        "dense": {
+            key: report["dense"][key]
+            for key in ("case_count", "hit_at_k", "mrr", "mean_query_seconds")
+        },
+        "hybrid": {
+            key: report["hybrid"][key]
+            for key in ("case_count", "hit_at_k", "mrr", "mean_additional_processing_seconds", "mean_total_query_seconds")
+        },
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print(f"상세 결과: {args.output}")

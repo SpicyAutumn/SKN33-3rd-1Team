@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+from hashlib import sha256
 import json
 import sys
 from pathlib import Path
@@ -13,7 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from rag_indexing.bm25_store import build_bm25_index  # noqa: E402
 
 
-DEFAULT_CHUNKS = PROJECT_ROOT / "data" / "processed" / "aks_chunks.jsonl"
+DEFAULT_CHUNKS = PROJECT_ROOT / "data" / "processed" / "aks_full_chunks.jsonl"
 DEFAULT_DATABASE = PROJECT_ROOT / "data" / "processed" / "aks_bm25_v1.sqlite3"
 
 
@@ -31,6 +33,18 @@ def load_chunks(path: Path) -> Iterator[dict[str, Any]]:
             yield chunk
 
 
+def file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def manifest_path(database_path: Path) -> Path:
+    return database_path.with_suffix(f"{database_path.suffix}.manifest.json")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build a local SQLite FTS5 BM25 index from AKS chunks.")
     parser.add_argument("--chunks", type=Path, default=DEFAULT_CHUNKS)
@@ -43,7 +57,16 @@ def main() -> int:
         count = build_bm25_index(load_chunks(args.chunks), args.database, force=args.force)
     except FileExistsError as exc:
         parser.error(str(exc))
-    print(json.dumps({"database": str(args.database), "chunk_count": count}, ensure_ascii=False, indent=2))
+    manifest = {
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "chunks_file": str(args.chunks),
+        "chunks_sha256": file_sha256(args.chunks),
+        "chunk_count": count,
+        "database_file": str(args.database),
+    }
+    output_manifest = manifest_path(args.database)
+    output_manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({**manifest, "manifest_file": str(output_manifest)}, ensure_ascii=False, indent=2))
     return 0
 
 

@@ -29,7 +29,7 @@ dense_weight = 1.5
 bm25_weight = 1.0
 ```
 
-`rrf_k=60`은 통상적인 RRF 기준값이다. `dense_weight=1.5`, `bm25_weight=1.0`은 아래 Dev 비교에서 선택했다. RRF 설정 변경은 검색 로직만 바꾸며 청킹·임베딩·Pinecone 재적재가 필요 없다.
+`candidate_k=10`, 최종 `top_k=3`, `rrf_k=60`, `dense_weight=1.5`, `bm25_weight=1.0`은 현재 Dev 비교를 위한 **초기 기준값**이다. 서비스 확정값이 아니며, 질문 세트·문서당 청크 제한·근거 판정 기준을 팀에서 합의한 뒤 별도 실험으로 조정한다. `rrf_k=60`은 통상적인 RRF 기준값이고, `dense_weight=1.5`, `bm25_weight=1.0`은 아래 Dev 비교에서 선택했다. RRF 설정 변경은 검색 로직만 바꾸며 청킹·임베딩·Pinecone 재적재가 필요 없다.
 
 ## 초기 평가 결과
 
@@ -44,9 +44,11 @@ bm25_weight = 1.0
 
 동등 결합은 BM25 후보가 의미상 더 적합한 Dense 결과를 밀어내 성능이 낮아졌다. `1.5`와 `2.0`은 같은 결과였으므로, BM25 신호를 조금 더 남기는 작은 값인 `1.5`를 기본값으로 선택했다. Holdout의 검색 평가 대상 4건에서는 Dense 단독과 선택 설정이 모두 Hit@3·MRR 1.00이었다. Holdout 표본이 작으므로 이 결과만으로 일반화하지 않으며, 후속 질문 세트가 늘어나면 재평가한다.
 
+평가 결과의 시간은 다음처럼 구분한다. Dense의 `mean_query_seconds`는 질문 임베딩과 Pinecone 검색을 포함한 Dense 전체 시간이다. 하이브리드의 `mean_additional_processing_seconds`는 이미 얻은 Dense 후보에 BM25 검색과 RRF 결합을 더하는 데 걸린 시간이며, `mean_total_query_seconds`는 두 시간을 합친 하이브리드 전체 시간이다. 따라서 추가 처리 시간만 하이브리드 전체 시간으로 해석하지 않는다.
+
 ## 실행
 
-전제: 팀 Drive에서 받은 전체 청크 파일을 `data/processed/aks_chunks.jsonl`에 둔다. 이 파일과 생성되는 BM25 SQLite 파일은 대용량 원문이므로 Git에 올리지 않는다.
+전제: 팀 Drive에서 받은 실제 전체 청크 파일 `data/processed/aks_full_chunks.jsonl`을 사용한다. 이 파일과 생성되는 BM25 SQLite 파일은 대용량 원문이므로 Git에 올리지 않는다.
 
 Pinecone 제어 API 연결이 느리거나 막힌 환경에서는 `.env`에 아래 선택 항목을 추가할 수 있다. 값은 Pinecone 콘솔의 해당 인덱스 **Host**를 복사한다. API Key가 아니므로 검색 대상 인덱스를 직접 지정하는 용도다.
 
@@ -55,7 +57,7 @@ PINECONE_INDEX_HOST=인덱스-Host-주소
 ```
 
 ```powershell
-# 1. 전체 179,028개 청크로 로컬 BM25 인덱스 생성
+# 1. 실제 전체 청크 파일 179,028개로 로컬 BM25 인덱스 생성
 .\.venv\Scripts\python.exe scripts\build_aks_bm25.py
 
 # 기존 BM25 인덱스를 다시 만들 때만 사용
@@ -76,6 +78,8 @@ PINECONE_INDEX_HOST=인덱스-Host-주소
 
 3번은 총 25개 질문을 Pinecone에 읽기 전용으로 질의하며, 질문 임베딩을 위해 OpenAI Embeddings API를 호출한다. Pinecone에 벡터를 추가·수정하지 않는다. 상세 결과는 Git 제외 경로인 `outputs/aks_hybrid_retrieval_dev_result.json`에 기록된다.
 
+BM25 인덱스를 만들면 같은 폴더에 `aks_bm25_v1.sqlite3.manifest.json`도 생성된다. 이 파일에는 실제 청크 파일 경로·SHA-256 체크섬·청크 수·생성 시각이 기록된다. 평가 결과에는 이 manifest와 Pinecone 인덱스·namespace·임베딩 모델·실행 시각이 함께 저장되어 같은 조건을 다시 확인할 수 있다.
+
 ## 결과 형식
 
 하이브리드 최종 결과도 기존 RetrievedContext 계약의 최상위 10개 필드만 반환한다.
@@ -87,11 +91,13 @@ section, retrieval_rank, retrieval_score, score_type, metadata
 
 `retrieval_score`는 결합된 RRF relevance 점수이고 `score_type`은 `relevance`이다. 원래의 cosine/BM25 개별 점수와 같은 수치로 해석하면 안 된다.
 
+**중요:** RRF `relevance` 점수에는 Dense cosine 기준선 `0.40`을 그대로 적용하지 않는다. 점수 범위와 의미가 다르므로, 하이브리드 검색을 RAG Service에 연결하기 전에는 `RAG_MIN_RETRIEVAL_SCORE`를 비워 두고 EvidenceChecker가 근거를 검토하게 한다. 하이브리드용 score threshold는 별도 평가로 정한다.
+
 ## 분리한 후속 실험
 
 - 문서당 최대 2개 청크 제한
 - score threshold
-- RRF 가중치·`rrf_k` 튜닝
+- `candidate_k`, 최종 `top_k`, RRF 가중치·`rrf_k` 튜닝
 - BM25용 한국어 형태소 분석기 적용 여부
 
 위 항목은 기본 하이브리드 베이스라인의 Hit@3·MRR를 먼저 확인한 뒤 별도로 비교한다.

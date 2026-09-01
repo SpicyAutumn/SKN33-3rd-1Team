@@ -17,7 +17,11 @@ def _context(chunk_id: str, rank: int, score: float) -> dict[str, object]:
         "retrieval_rank": rank,
         "retrieval_score": score,
         "score_type": "similarity",
-        "metadata": {"aliases": [], "chunking_fingerprint": None},
+        "metadata": {
+            "aliases": [],
+            "document_fingerprint": f"fingerprint-{chunk_id}",
+            "chunking_fingerprint": None,
+        },
     }
 
 
@@ -35,7 +39,11 @@ def test_bm25_index_returns_contract_contexts(tmp_path: Path) -> None:
             "content": "경복궁은 조선시대 궁궐이다.",
             "source_url": "https://example.test/palace",
             "section": "definition",
-            "metadata": {"aliases": ["경복궁"], "era": "조선"},
+            "metadata": {
+                "aliases": ["경복궁"],
+                "era": "조선",
+                "document_fingerprint": "fingerprint-palace",
+            },
         },
         {
             "chunk_id": "other",
@@ -44,7 +52,7 @@ def test_bm25_index_returns_contract_contexts(tmp_path: Path) -> None:
             "content": "다른 설명이다.",
             "source_url": None,
             "section": "body",
-            "metadata": {},
+            "metadata": {"document_fingerprint": "fingerprint-other"},
         },
     ]
     database = tmp_path / "aks.sqlite3"
@@ -66,7 +74,7 @@ def test_bm25_prioritizes_an_exact_title_over_a_document_that_only_mentions_it(t
             "content": "조선시대 궁궐이다.",
             "source_url": None,
             "section": "definition",
-            "metadata": {},
+            "metadata": {"document_fingerprint": "fingerprint-main-palace"},
         },
         {
             "chunk_id": "palace-building",
@@ -75,7 +83,7 @@ def test_bm25_prioritizes_an_exact_title_over_a_document_that_only_mentions_it(t
             "content": "경복궁에 있는 건물 경복궁 경복궁 경복궁.",
             "source_url": None,
             "section": "definition",
-            "metadata": {},
+            "metadata": {"document_fingerprint": "fingerprint-palace-building"},
         },
     ]
     database = tmp_path / "aks.sqlite3"
@@ -84,6 +92,48 @@ def test_bm25_prioritizes_an_exact_title_over_a_document_that_only_mentions_it(t
     results = BM25Retriever(database).search("경복궁에 대해 알려줘", top_k=2)
 
     assert [result["chunk_id"] for result in results] == ["main-palace", "palace-building"]
+
+
+def test_bm25_keeps_exact_title_results_for_known_heritage_terms(tmp_path: Path) -> None:
+    names = ("경복궁", "향원정", "석굴암", "종묘")
+    chunks = [
+        {
+            "chunk_id": f"chunk-{name}",
+            "document_id": f"aks:{name}",
+            "title": name,
+            "content": f"{name}에 대한 공식 설명.",
+            "source_url": None,
+            "section": "definition",
+            "metadata": {"aliases": [], "document_fingerprint": f"fingerprint-{name}"},
+        }
+        for name in names
+    ]
+    database = tmp_path / "aks.sqlite3"
+    build_bm25_index(chunks, database)
+
+    for name in names:
+        assert BM25Retriever(database).search(f"{name}은 무엇이야?", top_k=3)[0]["title"] == name
+
+
+def test_bm25_rejects_a_chunk_without_contract_fingerprint(tmp_path: Path) -> None:
+    chunks = [
+        {
+            "chunk_id": "missing-fingerprint",
+            "document_id": "aks:missing-fingerprint",
+            "title": "경복궁",
+            "content": "궁궐이다.",
+            "source_url": None,
+            "section": "definition",
+            "metadata": {"aliases": []},
+        }
+    ]
+
+    try:
+        build_bm25_index(chunks, tmp_path / "aks.sqlite3")
+    except ValueError as exc:
+        assert "document_fingerprint" in str(exc)
+    else:
+        raise AssertionError("BM25 index must reject a missing document_fingerprint")
 
 
 def test_rrf_promotes_a_document_found_by_both_retrievers() -> None:

@@ -17,7 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from aks_data.config import load_project_env  # noqa: E402
 from evaluation.case_loader import load_evaluation_cases  # noqa: E402
 from rag_indexing.bm25_store import BM25Retriever  # noqa: E402
-from rag_indexing.hybrid_retriever import HybridRetriever, Retriever  # noqa: E402
+from rag_indexing.hybrid_retriever import HybridRetriever, Retriever, reciprocal_rank_fusion  # noqa: E402
 from rag_indexing.pinecone_store import PineconeRetriever  # noqa: E402
 
 
@@ -44,6 +44,59 @@ def load_bm25_manifest(database_path: Path) -> dict[str, Any] | None:
     return value
 
 
+def score_results(case: dict[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Record one labelled retrieval result using its expected document IDs."""
+
+    expected_ids = set(case["expected_document_ids"])
+    hit_rank = next(
+        (item["retrieval_rank"] for item in results if item["document_id"] in expected_ids), None
+    )
+    return {
+        "case_id": case["case_id"],
+        "expected_response_type": case["expected_response_type"],
+        "question": case["question"],
+        "expected_document_ids": case["expected_document_ids"],
+        "hit_rank": hit_rank,
+        "reciprocal_rank": 1 / hit_rank if hit_rank else 0.0,
+        "top_results": [
+            {
+                "rank": item["retrieval_rank"],
+                "document_id": item["document_id"],
+                "title": item["title"],
+                "score": item["retrieval_score"],
+                "score_type": item["score_type"],
+            }
+            for item in results
+        ],
+    }
+
+
+def summarise(evaluations: list[dict[str, Any]], *, top_k: int) -> dict[str, Any]:
+    """Calculate rank-sensitive metrics for the same labelled cases."""
+
+    count = len(evaluations)
+    if count == 0:
+        raise ValueError("at least one labelled retrieval case is required")
+    type_counts = Counter(item["expected_response_type"] for item in evaluations)
+    return {
+        "case_count": count,
+        "response_type_counts": dict(sorted(type_counts.items())),
+        "hit_at_1": sum(item["hit_rank"] == 1 for item in evaluations) / count,
+        "hit_at_k": sum(item["hit_rank"] is not None for item in evaluations) / count,
+        "mrr": sum(item["reciprocal_rank"] for item in evaluations) / count,
+        "hits_by_response_type": {
+            response_type: sum(
+                item["hit_rank"] is not None
+                for item in evaluations
+                if item["expected_response_type"] == response_type
+            )
+            for response_type in sorted(type_counts)
+        },
+        "evaluations": evaluations,
+        "top_k": top_k,
+    }
+
+
 def evaluate(retriever: Retriever, cases: list[dict[str, Any]], *, top_k: int) -> dict[str, Any]:
     evaluations: list[dict[str, Any]] = []
     durations: list[float] = []
@@ -51,63 +104,33 @@ def evaluate(retriever: Retriever, cases: list[dict[str, Any]], *, top_k: int) -
         started_at = perf_counter()
         results = retriever.search(case["question"], top_k=top_k)
         durations.append(perf_counter() - started_at)
-        expected_ids = set(case["expected_document_ids"])
-        hit_rank = next(
-            (item["retrieval_rank"] for item in results if item["document_id"] in expected_ids), None
-        )
-        evaluations.append(
-            {
-                "case_id": case["case_id"],
-                "expected_response_type": case["expected_response_type"],
-                "question": case["question"],
-                "expected_document_ids": case["expected_document_ids"],
-                "hit_rank": hit_rank,
-                "reciprocal_rank": 1 / hit_rank if hit_rank else 0.0,
-                "top_results": [
-                    {
-                        "rank": item["retrieval_rank"],
-                        "document_id": item["document_id"],
-                        "title": item["title"],
-                        "score": item["retrieval_score"],
-                        "score_type": item["score_type"],
-                    }
-                    for item in results
-                ],
-            }
-        )
-        hit = f"{hit_rank}위" if hit_rank else f"top-{top_k} 실패"
+        evaluation = score_results(case, results)
+        evaluations.append(evaluation)
+        hit = f"{evaluation['hit_rank']}위" if evaluation["hit_rank"] else f"top-{top_k} 실패"
         print(f"[{number}/{len(cases)}] {case['case_id']}: {hit}", flush=True)
 
-    count = len(evaluations)
-    type_counts = Counter(item["expected_response_type"] for item in evaluations)
-    type_hit_counts = {
-        response_type: sum(
-            item["hit_rank"] is not None
-            for item in evaluations
-            if item["expected_response_type"] == response_type
-        )
-        for response_type in sorted(type_counts)
-    }
     return {
-        "case_count": count,
-        "response_type_counts": dict(sorted(type_counts.items())),
-        "hit_at_k": sum(item["hit_rank"] is not None for item in evaluations) / count,
-        "mrr": sum(item["reciprocal_rank"] for item in evaluations) / count,
-        "mean_query_seconds": sum(durations) / count,
-        "hits_by_response_type": type_hit_counts,
-        "evaluations": evaluations,
+        **summarise(evaluations, top_k=top_k),
+        "mean_query_seconds": sum(durations) / len(durations),
     }
 
 
 def evaluate_comparison(
-    dense: Retriever, hybrid: HybridRetriever, cases: list[dict[str, Any]], *, top_k: int
+    dense: Retriever,
+    bm25: Retriever,
+    hybrid: HybridRetriever,
+    cases: list[dict[str, Any]],
+    *,
+    top_k: int,
 ) -> dict[str, dict[str, Any]]:
-    """Compare both methods with one OpenAI query embedding per case."""
+    """Compare Dense, BM25 and RRF hybrid with one Dense query per case."""
 
     dense_evaluations: list[dict[str, Any]] = []
+    bm25_evaluations: list[dict[str, Any]] = []
     hybrid_evaluations: list[dict[str, Any]] = []
     dense_durations: list[float] = []
-    hybrid_durations: list[float] = []
+    bm25_durations: list[float] = []
+    hybrid_additional_durations: list[float] = []
     candidate_k = max(top_k, hybrid.candidate_k)
     for number, case in enumerate(cases, start=1):
         started_at = perf_counter()
@@ -116,73 +139,55 @@ def evaluate_comparison(
         dense_results = dense_candidates[:top_k]
 
         started_at = perf_counter()
-        hybrid_results = hybrid.search_from_dense_results(case["question"], dense_candidates, top_k=top_k)
-        hybrid_durations.append(perf_counter() - started_at)
+        bm25_candidates = bm25.search(case["question"], top_k=candidate_k)
+        bm25_durations.append(perf_counter() - started_at)
+        bm25_results = bm25_candidates[:top_k]
 
-        def scored(results: list[dict[str, Any]]) -> dict[str, Any]:
-            expected_ids = set(case["expected_document_ids"])
-            hit_rank = next(
-                (item["retrieval_rank"] for item in results if item["document_id"] in expected_ids), None
-            )
-            return {
-                "case_id": case["case_id"],
-                "expected_response_type": case["expected_response_type"],
-                "question": case["question"],
-                "expected_document_ids": case["expected_document_ids"],
-                "hit_rank": hit_rank,
-                "reciprocal_rank": 1 / hit_rank if hit_rank else 0.0,
-                "top_results": [
-                    {
-                        "rank": item["retrieval_rank"],
-                        "document_id": item["document_id"],
-                        "title": item["title"],
-                        "score": item["retrieval_score"],
-                        "score_type": item["score_type"],
-                    }
-                    for item in results
-                ],
-            }
+        started_at = perf_counter()
+        hybrid_results = reciprocal_rank_fusion(
+            dense_candidates,
+            bm25_candidates,
+            top_k=top_k,
+            rrf_k=hybrid.rrf_k,
+            dense_weight=hybrid.dense_weight,
+            bm25_weight=hybrid.bm25_weight,
+        )
+        hybrid_additional_durations.append(bm25_durations[-1] + (perf_counter() - started_at))
 
-        dense_result = scored(dense_results)
-        hybrid_result = scored(hybrid_results)
+        dense_result = score_results(case, dense_results)
+        bm25_result = score_results(case, bm25_results)
+        hybrid_result = score_results(case, hybrid_results)
         dense_evaluations.append(dense_result)
+        bm25_evaluations.append(bm25_result)
         hybrid_evaluations.append(hybrid_result)
         dense_hit = f"{dense_result['hit_rank']}위" if dense_result["hit_rank"] else f"top-{top_k} 실패"
+        bm25_hit = f"{bm25_result['hit_rank']}위" if bm25_result["hit_rank"] else f"top-{top_k} 실패"
         hybrid_hit = f"{hybrid_result['hit_rank']}위" if hybrid_result["hit_rank"] else f"top-{top_k} 실패"
-        print(f"[{number}/{len(cases)}] {case['case_id']}: Dense {dense_hit} / Hybrid {hybrid_hit}", flush=True)
-
-    def summarise(evaluations: list[dict[str, Any]]) -> dict[str, Any]:
-        count = len(evaluations)
-        type_counts = Counter(item["expected_response_type"] for item in evaluations)
-        return {
-            "case_count": count,
-            "response_type_counts": dict(sorted(type_counts.items())),
-            "hit_at_k": sum(item["hit_rank"] is not None for item in evaluations) / count,
-            "mrr": sum(item["reciprocal_rank"] for item in evaluations) / count,
-            "hits_by_response_type": {
-                response_type: sum(
-                    item["hit_rank"] is not None
-                    for item in evaluations
-                    if item["expected_response_type"] == response_type
-                )
-                for response_type in sorted(type_counts)
-            },
-            "evaluations": evaluations,
-        }
+        print(
+            f"[{number}/{len(cases)}] {case['case_id']}: "
+            f"Dense {dense_hit} / BM25 {bm25_hit} / Hybrid {hybrid_hit}",
+            flush=True,
+        )
 
     return {
         "dense": {
-            **summarise(dense_evaluations),
+            **summarise(dense_evaluations, top_k=top_k),
             "mean_query_seconds": sum(dense_durations) / len(dense_durations),
         },
+        "bm25": {
+            **summarise(bm25_evaluations, top_k=top_k),
+            "mean_query_seconds": sum(bm25_durations) / len(bm25_durations),
+        },
         "hybrid": {
-            **summarise(hybrid_evaluations),
+            **summarise(hybrid_evaluations, top_k=top_k),
             # Dense candidates are intentionally reused, so this measures only
             # the additional local BM25 + RRF work.
-            "mean_additional_processing_seconds": sum(hybrid_durations) / len(hybrid_durations),
+            "mean_additional_processing_seconds": sum(hybrid_additional_durations) / len(hybrid_additional_durations),
             "mean_total_query_seconds": sum(
                 dense_duration + hybrid_duration
-                for dense_duration, hybrid_duration in zip(dense_durations, hybrid_durations, strict=True)
+                for dense_duration, hybrid_duration in zip(
+                    dense_durations, hybrid_additional_durations, strict=True
+                )
             )
             / len(dense_durations),
         },
@@ -190,7 +195,7 @@ def evaluate_comparison(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Compare dense and BM25+RRF hybrid AKS retrieval on Dev cases.")
+    parser = argparse.ArgumentParser(description="Compare Dense, BM25 and BM25+RRF hybrid AKS retrieval on labelled cases.")
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
     parser.add_argument("--split", choices=("dev", "holdout"), default="dev")
     parser.add_argument("--bm25-database", type=Path, default=DEFAULT_DATABASE)
@@ -207,15 +212,16 @@ def main() -> int:
     load_project_env(PROJECT_ROOT / ".env")
     cases = select_retrieval_cases(load_evaluation_cases(args.cases, expected_split=args.split))
     dense = PineconeRetriever()
+    bm25 = BM25Retriever(args.bm25_database)
     hybrid = HybridRetriever(
         dense,
-        BM25Retriever(args.bm25_database),
+        bm25,
         candidate_k=args.candidate_k,
         rrf_k=args.rrf_k,
         dense_weight=args.dense_weight,
         bm25_weight=args.bm25_weight,
     )
-    comparison = evaluate_comparison(dense, hybrid, cases, top_k=args.top_k)
+    comparison = evaluate_comparison(dense, bm25, hybrid, cases, top_k=args.top_k)
     report = {
         "executed_at_utc": datetime.now(timezone.utc).isoformat(),
         "cases_file": str(args.cases),
@@ -238,11 +244,22 @@ def main() -> int:
     summary = {
         "dense": {
             key: report["dense"][key]
-            for key in ("case_count", "hit_at_k", "mrr", "mean_query_seconds")
+            for key in ("case_count", "hit_at_1", "hit_at_k", "mrr", "mean_query_seconds")
+        },
+        "bm25": {
+            key: report["bm25"][key]
+            for key in ("case_count", "hit_at_1", "hit_at_k", "mrr", "mean_query_seconds")
         },
         "hybrid": {
             key: report["hybrid"][key]
-            for key in ("case_count", "hit_at_k", "mrr", "mean_additional_processing_seconds", "mean_total_query_seconds")
+            for key in (
+                "case_count",
+                "hit_at_1",
+                "hit_at_k",
+                "mrr",
+                "mean_additional_processing_seconds",
+                "mean_total_query_seconds",
+            )
         },
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))

@@ -31,18 +31,17 @@ bm25_weight = 1.0
 
 `candidate_k=10`, 최종 `top_k=3`, `rrf_k=60`, `dense_weight=1.5`, `bm25_weight=1.0`은 현재 Dev 비교를 위한 **초기 기준값**이다. 서비스 확정값이 아니며, 질문 세트·문서당 청크 제한·근거 판정 기준을 팀에서 합의한 뒤 별도 실험으로 조정한다. `rrf_k=60`은 통상적인 RRF 기준값이고, `dense_weight=1.5`, `bm25_weight=1.0`은 아래 Dev 비교에서 선택했다. RRF 설정 변경은 검색 로직만 바꾸며 청킹·임베딩·Pinecone 재적재가 필요 없다.
 
-## 초기 평가 결과
+## Dev 3방식 평가 결과
 
-평가 대상은 PR #15 Dev의 `answered` 20건과 `corrected_premise` 5건, 총 25건이며 `top_k=3`이다.
+평가 대상은 PR #15 Dev의 `answered` 21건과 `corrected_premise` 4건, 총 25건이며 `top_k=3`이다. 상세 결과와 실행 조건은 [하이브리드 검색 평가 보고서](hybrid_retrieval_evaluation_report.md)에 기록한다.
 
-| 검색 방식 | Dense 가중치 | BM25 가중치 | Hit@3 | MRR |
+| 검색 방식 | Hit@1 | Hit@3 | MRR | 평균 시간 |
 | --- | ---: | ---: | ---: | ---: |
-| Dense 단독 | - | - | 0.88 (22/25) | 0.80 |
-| RRF 동등 결합 | 1.0 | 1.0 | 0.84 (21/25) | 0.713 |
-| RRF 튜닝 | 1.5 | 1.0 | **0.92 (23/25)** | **0.82** |
-| RRF 튜닝 | 2.0 | 1.0 | **0.92 (23/25)** | **0.82** |
+| Dense 단독 | **0.80 (20/25)** | 0.88 (22/25) | **0.827** | 0.590초 |
+| BM25 단독 | 0.20 (5/25) | 0.32 (8/25) | 0.260 | 0.451초 |
+| RRF 하이브리드 (1.5 : 1.0) | 0.76 (19/25) | **0.92 (23/25)** | 0.820 | 1.042초 (전체) |
 
-동등 결합은 BM25 후보가 의미상 더 적합한 Dense 결과를 밀어내 성능이 낮아졌다. `1.5`와 `2.0`은 같은 결과였으므로, BM25 신호를 조금 더 남기는 작은 값인 `1.5`를 기본값으로 선택했다. Holdout의 검색 평가 대상 4건에서는 Dense 단독과 선택 설정이 모두 Hit@3·MRR 1.00이었다. Holdout 표본이 작으므로 이 결과만으로 일반화하지 않으며, 후속 질문 세트가 늘어나면 재평가한다.
+현재 설정의 하이브리드는 Dense보다 정답 문서를 상위 3개 안에 한 건 더 포함했지만, 1위 정확도와 MRR은 소폭 낮았다. 따라서 RAG가 여러 근거 청크를 받는 `top_k=3` 검색에서는 유효한 후보 확장 기준이지만, 1위 결과만 사용하는 화면·서비스의 확정 기본값으로 단정하지 않는다. Dense 가중치·`candidate_k`·문서당 청크 제한은 별도 실험으로 조정한다.
 
 평가 결과의 시간은 다음처럼 구분한다. Dense의 `mean_query_seconds`는 질문 임베딩과 Pinecone 검색을 포함한 Dense 전체 시간이다. 하이브리드의 `mean_additional_processing_seconds`는 이미 얻은 Dense 후보에 BM25 검색과 RRF 결합을 더하는 데 걸린 시간이며, `mean_total_query_seconds`는 두 시간을 합친 하이브리드 전체 시간이다. 따라서 추가 처리 시간만 하이브리드 전체 시간으로 해석하지 않는다.
 
@@ -66,8 +65,8 @@ PINECONE_INDEX_HOST=인덱스-Host-주소
 # 2. 하이브리드 검색 결과 확인
 .\.venv\Scripts\python.exe scripts\search_hybrid_aks.py "경복궁에 대해 알려줘" --top-k 3
 
-# 3. PR #15 Dev 질문 중 answered 20건 + corrected_premise 5건으로
-#    Dense 단독과 하이브리드의 Hit@3·MRR 비교
+# 3. PR #15 Dev 질문 중 answered 21건 + corrected_premise 4건으로
+#    Dense 단독·BM25 단독·하이브리드의 Hit@1·Hit@3·MRR 비교
 .\.venv\Scripts\python.exe scripts\evaluate_hybrid_retrieval.py --top-k 3
 
 # Dev에서 고른 설정을 holdout의 검색 평가 대상 4건으로 확인

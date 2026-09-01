@@ -423,7 +423,7 @@ def build_map(
             )
             ordered = [by_id[d] for d, _ in ranked if d in by_id] or ordered
         add(
-            "이름이 이어지는 유산",
+            "딸린 유산",
             f"이름이 `{root.title}`으로 시작하는 유산입니다. "
             "딸린 건물이거나 같은 계열의 기록입니다.",
             [_node(e, "이름이 이어집니다") for e in ordered],
@@ -454,7 +454,7 @@ def build_map(
                 exclude_documents=used,
             )
             add(
-                f"{era}의 다른 유산",
+                f"시대 : {era}",
                 f"백과사전이 `{era}`{ro_suffix(era)} 매긴 유산 가운데 원문이 가까운 순입니다.",
                 [
                     _node(book.by_document[d], f"{era}")
@@ -478,7 +478,7 @@ def build_map(
                 exclude_documents=used,
             )
             add(
-                f"같은 갈래 · {kind}",
+                f"종류 : {kind}",
                 f"백과사전이 `{kind}`{ro_suffix(kind)} 분류한 유산입니다.",
                 [
                     _node(book.by_document[d], f"{kind}")
@@ -516,7 +516,7 @@ def build_map(
             nearby = [by_id[d] for d, _ in ranked if d in by_id] or nearby
 
         add(
-            f"{place}에서 만나는 유산",
+            f"지역 : {place}",
             f"이름 앞머리가 `{place}`인 유산입니다. 함께 둘러볼 수 있습니다.",
             [_node(e, f"{place} 소재") for e in nearby],
         )
@@ -534,7 +534,7 @@ def build_map(
         )
         kind = top_level(root.item_type)
         add(
-            "뜻밖에 이어지는 유산",
+            "다른 갈래",
             (
                 f"`{kind}`{particle(kind, '이', '가')} 아닌 갈래인데도 원문이 가까운 유산입니다. "
                 "몰랐던 연결이 여기서 나옵니다."

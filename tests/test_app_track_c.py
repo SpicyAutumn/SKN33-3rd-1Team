@@ -272,7 +272,7 @@ class HeritageGraphTest(unittest.TestCase):
         payload = heritage_graph.build_map("경복궁", neighbors=None)
         self.assertEqual(payload["root"]["title"], "경복궁")
         titles = [b["title"] for b in payload["branches"]]
-        self.assertIn("이름이 이어지는 유산", titles)
+        self.assertIn("딸린 유산", titles)
 
     def test_unknown_root_returns_none(self):
         self.assertIsNone(heritage_graph.build_map("없는유산", neighbors=None))
@@ -301,7 +301,7 @@ class HeritageGraphTest(unittest.TestCase):
         """`미상`은 6,586건이 함께 달고 있어 같은 값이라는 사실이 아무것도 설명하지 못한다."""
         self.assertEqual(heritage_graph.top_level(self.book.find("궁궐").period), "미상")
         payload = heritage_graph.build_map("궁궐", neighbors=None)
-        self.assertFalse([b for b in payload["branches"] if "다른 유산" in b["title"]])
+        self.assertFalse([b for b in payload["branches"] if b["title"].startswith("시대 :")])
 
     def test_root_prefers_a_heritage_item_over_a_concept(self):
         """`직지`를 물으면 검색 1위가 `직`(유교 개념)이고 정답은 2위였다."""

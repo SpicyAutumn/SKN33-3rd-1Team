@@ -1,193 +1,174 @@
-# 한국민족문화대백과사전 기반 수준별 문화유산 RAG 안내 서비스
+# 한국민족문화대백과사전 기반 한국 역사·문화 RAG 안내 서비스
 
 > SKN AI 캠프 3차 단위 프로젝트 — LLM/RAG 1팀
 >
 > 문서 기준일: 2026-09-01
 >
-> 현재 상태: 데이터·검색 기반 구현 완료, 생성 모델·UI 통합 검토 중
+> 기준 코드: PR #26까지 반영된 `main`
 
-한국민족문화대백과사전의 공식 자료를 검색하여 사용자의 이해 수준에 맞는 설명과 원문 출처를 제공하는 RAG 기반 문화유산 안내 서비스입니다.
+한국민족문화대백과사전의 공식 자료에서 질문과 관련된 내용을 찾아, 사용자의 이해 수준에 맞는 답변과 원문 출처를 제공하는 서비스입니다.
 
-시스템은 검색 결과에 없는 출처를 LLM이 임의로 만들지 않도록 답변에 사용한 청크를 검사합니다. 근거가 부족하거나 질문이 모호한 경우에는 추측해서 답하기보다 근거 부족 또는 추가 질문으로 안내하는 것을 목표로 합니다.
+질문과 글의 뜻을 비교하는 **의미 검색**과 제목·별칭의 정확한 낱말을 찾는 **BM25 검색**을 함께 사용합니다. 답변은 검색된 근거 안에서만 만들고, 실제로 사용한 원문 조각을 검사해 출처와 연결합니다.
 
-> 현재 프로젝트명은 설명형 임시 명칭입니다. 최종 서비스명은 팀 합의 후 변경할 수 있습니다.
+## 1. 프로젝트 목표
 
-## 1. 핵심 기능
+한국의 문화유산뿐 아니라 인물·사건·사상·문학·예술·민속 등에 관한 질문을 다음 원칙으로 처리합니다.
 
-- 한국민족문화대백과사전 OpenAPI 원문 수집·검증
-- 원문 정제, 청킹, 메타데이터 및 추적용 식별자 생성
-- OpenAI 임베딩과 Pinecone을 이용한 의미 기반 Dense 검색
-- 제목·별칭·본문의 정확한 단어를 찾는 BM25 검색
-- Dense와 BM25 순위를 RRF로 결합하는 Hybrid 검색
-- `easy`, `general`, `advanced` 수준별 답변 계약
-- 답변, 근거 부족, 추가 확인, 잘못된 전제 정정 등 여섯 가지 응답 유형
-- 실제 검색 청크와 답변에 사용한 청크를 연결한 출처·근거 표시
-- Streamlit 기반 질문·답변 과정·평가·탐험 화면
+- 공식 자료에서 확인되는 내용만 설명합니다.
+- 사용자가 `쉽게`, `일반`, `깊이 있게` 중 설명 수준을 고를 수 있습니다.
+- 답변에 사용한 원문 제목, URL과 근거 문장을 함께 보여 줍니다.
+- 근거가 부족하거나 대상이 모호하면 추측하지 않고 그 이유를 안내합니다.
+- 검색과 답변이 만들어지는 과정을 화면에서 확인할 수 있게 합니다.
 
 ## 2. 현재 구현 상태
 
-README의 상태는 최신 `main`과 발표 전 검토 중인 작업을 구분해 표시합니다.
+### `main`에 반영된 기능
 
-| 영역 | 상태 | 현재 기준 |
+| 영역 | 상태 | 현재 구현 |
 | :--- | :---: | :--- |
-| 원본 수집·검증 | 완료 | 상세 원본 75,835건, JSONL 오류·중복·누락 0건 |
-| 정제·청킹 검증 | 완료 | 문서 75,820건, 청크 179,028건, 누락·중복·필드 오류 0건 |
-| Pinecone Dense 검색 | 완료 | `aks-rag-v1` / 기본 namespace / `text-embedding-3-small` |
-| BM25·Hybrid 검색 | 완료 | Dense와 BM25 후보를 RRF로 결합 |
-| 검색 평가 | 완료 | Dev 25문항과 고유명사 회귀 5문항 비교 |
-| RAG 입출력 계약 | 기본 구현 완료 | `RetrievedContext`, `GenerationRequest`, `ServiceResponse` 계약과 검증 |
-| Prompt·생성 평가 기준 | 검토 중 | Prompt Baseline과 Fine-tuning 비교 기준 PR 검토 |
-| 생성 컴포넌트 | 검토 중 | 특정 API에 종속되지 않는 기본 구조 PR 검토 |
-| 실제 LLM 연결 | 예정 | 사용할 API 모델·비용 확인 후 소규모 Baseline 실행 |
-| Streamlit 통합 | Draft 검토 중 | 현재 `main` 화면은 Mock 중심이며 실제 RAG 연결 PR 검토 중 |
-| Fine-tuning | 미실행 | Prompt Baseline 결과를 확인한 뒤 필요성과 효과를 판단 |
+| 원본 수집·검증 | 완료 | AKS OpenAPI 원본 75,835건 수집 및 무결성 확인 |
+| 정제·청킹 | 완료 | 본문 없는 15건을 제외한 75,820개 문서를 179,028개 청크로 구성 |
+| Dense 검색 | 완료 | OpenAI 임베딩과 Pinecone을 이용한 의미 검색 |
+| BM25·Hybrid 검색 | 완료 | 정확한 낱말 검색과 의미 검색의 순위를 RRF로 결합 |
+| 검색 결과 다양화 | 완료 | 같은 문서의 청크는 최대 2개까지 선택하면서 최종 3개를 구성 |
+| RAG Service | 완료 | 검색, 근거 확인, 생성, 응답 검증과 Citation 조립 연결 |
+| 실제 답변 생성 | 완료 | RunPod의 Ollama 호환 모델을 Streamlit과 연결 |
+| 화면 | 기본 통합 완료 | 질문, 답변 과정, 공정 견학, 평가, 탐험 화면 제공 |
+| Prompt·생성 평가 기준 | 문서화 완료 | 설명 수준, 응답 형식, Baseline 비교 원칙 정리 |
+| Fine-tuning | 3차 미적용 | Baseline 결과와 필요성을 확인한 뒤 후속 프로젝트에서 검토 |
 
-관련 작업의 병합 상태가 바뀌면 위 표와 실행 방법을 함께 갱신합니다.
+### 병합 전 검토 중인 작업
 
-## 3. 전체 처리 흐름
+아래 기능은 README 작성 시점에 자동 테스트는 통과했지만 아직 `main`에는 반영되지 않았습니다. 병합 결과에 따라 설명과 실행 방법이 달라질 수 있습니다.
+
+| PR | 검토 중인 내용 | README 반영 원칙 |
+| :---: | :--- | :--- |
+| #25 | 탐험 지도 개선, 범위 밖 질문 차단, 검색 점수 설명 정리 | 병합 전에는 현재 기능으로 단정하지 않음 |
+| #27 | `easy/general/advanced`별 Ollama 답변 가독성 개선 | 현재 Prompt Baseline과 구분 |
+| #28 | RAGAS 기반 Faithfulness·Answer Relevancy 평가 | 병합 후 실제 실행 조건과 비용을 확인해 갱신 |
+
+PR #21의 모델 독립형 생성 컴포넌트는 현재 서비스가 사용하는 Ollama 생성 경로와 중복될 수 있어 **3차 프로젝트에는 적용하지 않는 방향**입니다. 해당 구조는 여러 생성 모델을 같은 방식으로 비교할 필요가 생길 때 4차 프로젝트에서 다시 검토할 수 있습니다.
+
+## 3. 전체 동작 흐름
 
 ```mermaid
 flowchart LR
-    A[AKS OpenAPI 원문] --> B[수집·무결성 검증]
-    B --> C[정제·청킹]
-    C --> D[Embedding]
-    D --> E[(Pinecone)]
-    C --> F[(BM25 SQLite)]
+    A[AKS 원문] --> B[정제·청킹]
+    B --> C[OpenAI Embedding]
+    C --> D[(Pinecone)]
+    B --> E[(BM25 SQLite)]
 
-    U[사용자 질문] --> S[안전·범위 확인]
-    S --> G[Dense + BM25 검색]
-    E --> G
-    F --> G
-    G --> H[RRF 순위 결합]
-    H --> I[근거 충분성 확인]
-    I -->|근거 부족| J[근거 부족 안내]
-    I -->|근거 있음| K[Prompt·LLM 생성]
-    K --> L[응답 형식·청크 ID 검증]
-    L --> M[답변·출처·근거 문장 조립]
-    M --> N[Streamlit 화면]
+    Q[사용자 질문] --> F[Dense + BM25 검색]
+    D --> F
+    E --> F
+    F --> G[RRF 순위 결합]
+    G --> H[문서당 최대 2개·최종 3개]
+    H --> I[근거 확인]
+    I -->|충분| J[Ollama 답변 생성]
+    I -->|부족| K[근거 부족 안내]
+    J --> L[사용 청크 ID 검증]
+    L --> M[답변·출처·근거 문장]
+    K --> N[Streamlit]
+    M --> N
 ```
 
-Hybrid 검색의 RRF 점수는 Pinecone cosine similarity와 범위와 의미가 다릅니다. 따라서 Dense 실험에서 사용했던 `0.40` 기준선을 RRF 결과에 그대로 적용하지 않습니다. 현재 Hybrid 기준에서는 점수 기준선을 비워 두고 별도의 근거 확인 단계가 문맥의 충분성을 판단하도록 설계했습니다.
+쉽게 말하면 다음 순서입니다.
 
-## 4. 데이터
+1. 질문의 의미와 정확한 낱말을 각각 검색합니다.
+2. 두 검색 결과의 순위를 합쳐 관련성이 높은 원문 조각 3개를 고릅니다.
+3. 근거가 충분하면 Ollama 모델이 답변을 만듭니다.
+4. 모델이 사용했다고 밝힌 청크가 실제 검색 결과에 있는지 검사합니다.
+5. 검증된 청크의 제목·URL·본문만 출처와 근거 문장으로 표시합니다.
 
-### 출처
+## 4. 데이터와 품질 관리
+
+### 데이터 출처
 
 - 기관: 한국학중앙연구원(AKS, Academy of Korean Studies)
-- 서비스: 한국민족문화대백과사전
-- 방식: 공식 OpenAPI의 목록·상세 API
-- 텍스트 출처 표기: `항목명 - 한국민족문화대백과사전 (한국학중앙연구원)`
-- 이미지·영상·음성: 항목별 권리 조건이 달라 이번 corpus에서 제외
+- 서비스: [한국민족문화대백과사전](https://encykorea.aks.ac.kr/)
+- 수집 방식: 공식 OpenAPI 목록·상세 API
+- 이번 RAG 범위: 텍스트 본문과 분류·별칭 등 검색용 메타데이터
+- 제외 범위: 이미지·영상·음성 등 권리 조건을 별도로 확인해야 하는 미디어
 
-### 규모와 검증 결과
+### 검증 결과
 
-| 구분 | 결과 |
+| 확인 항목 | 결과 |
 | :--- | ---: |
-| 상세 원본 JSON | 75,835건 |
-| 본문 없는 제외 항목 | 15건 |
-| 최종 corpus 문서 | 75,820건 |
+| 수집한 원본 | 75,835건 |
+| 최종 포함 문서 | 75,820건 |
+| 본문이 없어 제외한 문서 | 15건 |
 | 최종 청크 | 179,028건 |
-| JSON 파싱 오류 | 0건 |
+| JSON·청크 필드 오류 | 0건 |
 | 중복 청크 ID | 0건 |
-| manifest 대상 문서 누락 | 0건 |
-| corpus 제외 대상 포함 | 0건 |
+| 대상 문서 누락 | 0건 |
+| 제외 대상의 잘못된 포함 | 0건 |
 
-원본 JSON·JSONL과 생성된 BM25 DB는 용량과 이용 조건 때문에 Git에 올리지 않습니다. 팀 공유 드라이브에서 전달받은 파일의 이름과 체크섬을 유지하고, 자세한 출처·보관·검증 기준은 [데이터 문서 카드](docs/document-card.md)와 [전처리 보고서](docs/02_data_preprocessing_report.md)를 확인합니다.
+원본 JSON·JSONL과 생성된 BM25 DB는 용량과 이용 조건 때문에 GitHub에 올리지 않습니다. 데이터 출처, 체크섬, 제외 기준과 재검증 방법은 [데이터 문서 카드](docs/document-card.md)와 [전처리 보고서](docs/02_data_preprocessing_report.md)에서 확인할 수 있습니다.
 
-### 청크와 검색 문맥
+## 5. 검색 방식과 평가
 
-청크는 정의(`definition`)와 본문(`body`)을 구분하며, 검색 결과는 다음 공통 필드를 반환합니다.
+### 세 가지 검색 방식
 
-```text
-chunk_id, document_id, title, content, source_url,
-section, retrieval_rank, retrieval_score, score_type, metadata
-```
+| 방식 | 쉽게 설명하면 | 장점 | 한계 |
+| :--- | :--- | :--- | :--- |
+| Dense | 질문과 글의 뜻이 비슷한지 비교 | 표현이 달라도 의미가 비슷한 글을 찾음 | 짧은 고유명사나 정확한 제목을 놓칠 수 있음 |
+| BM25 | 같은 낱말이 얼마나 잘 겹치는지 확인 | 제목·별칭·고유명사 검색에 강함 | 같은 뜻을 다른 표현으로 쓴 질문에는 약함 |
+| Hybrid | 두 검색 결과의 순위를 함께 반영 | 의미와 정확한 낱말을 서로 보완 | 검색 시간이 늘고 RRF 점수 해석이 필요함 |
 
-답변 생성에는 `content`를 근거로 사용하고, 제목·시대·유형·별칭 등은 검색 보조 정보와 출처 추적에 사용합니다. 세부 형식은 [RetrievedContext 계약](docs/retrieved_context_contract.md)을 참고합니다.
+현재 Hybrid 기본값은 Dense 후보 10개와 BM25 후보 10개를 `RRF k=60`, Dense 가중치 `1.5`, BM25 가중치 `1.0`으로 합친 뒤, 문서당 최대 2개를 적용해 최종 3개를 반환합니다.
 
-## 5. 검색 방식과 평가 결과
+RRF 점수는 Pinecone의 cosine similarity와 단위가 다릅니다. 따라서 의미 검색에서 사용했던 `0.40` 같은 기준선을 RRF 점수에 그대로 적용하지 않습니다.
 
-### 검색 방식
+### Dev 25문항 평가 결과
 
-- **Dense**: 질문과 문서의 의미적 유사성을 OpenAI 임베딩과 Pinecone cosine similarity로 검색합니다.
-- **BM25**: 제목·별칭·본문에 포함된 정확한 단어를 로컬 SQLite FTS5 인덱스로 검색합니다.
-- **Hybrid**: 두 검색기의 점수를 직접 더하지 않고 각 결과의 순위를 RRF 방식으로 결합합니다.
-
-현재 Hybrid 초기 기준은 다음과 같습니다.
-
-```text
-Dense 후보 10개 + BM25 후보 10개
-RRF k = 60
-Dense 가중치 = 1.5
-BM25 가중치 = 1.0
-최종 top_k = 3
-```
-
-이 값들은 Dev 비교에서 사용한 첫 기준값이며 서비스의 영구 확정값은 아닙니다.
-
-### Dev 25문항 결과
-
-| 방식 | Hit@1 | Hit@3 | MRR | 평균 검색 시간 |
+| 검색 방식 | 1위 정답률 Hit@1 | 3위 이내 정답률 Hit@3 | 정답 순위 MRR | 평균 검색 시간 |
 | :--- | ---: | ---: | ---: | ---: |
-| Dense | 0.76 | 0.88 | 0.800 | 0.492초 |
-| BM25 | 0.20 | 0.32 | 0.260 | 0.487초 |
-| Hybrid | **0.76** | **0.92** | **0.820** | 0.979초 |
+| Dense | 0.76 | 0.88 | 0.800 | 0.601초 |
+| BM25 | 0.20 | 0.32 | 0.260 | 0.442초 |
+| Hybrid | **0.76** | **0.92** | **0.820** | 1.043초 |
 
-Hybrid는 Dense보다 정답 문서를 상위 3개 안에 포함한 질문이 22건에서 23건으로 늘었고 MRR도 높아졌습니다. 반면 평균 검색 시간은 증가했습니다.
+Hybrid는 Dense보다 정답 문서가 상위 3개 안에 포함되는 질문을 22건에서 23건으로 늘렸습니다. 반면 평균 검색 시간은 약 0.44초 증가했습니다. 이 결과는 작은 Dev 세트의 비교 결과이므로 모든 질문에서 항상 더 좋다고 확대 해석하지 않습니다.
 
-### 문화재 고유명사 5문항 결과
-
-| 방식 | Hit@1 | Hit@3 | MRR |
-| :--- | ---: | ---: | ---: |
-| Dense | 0.60 | 0.80 | 0.667 |
-| BM25 | **1.00** | **1.00** | **1.000** |
-| Hybrid | **1.00** | **1.00** | **1.000** |
-
-`종묘`, `향원정`처럼 이름이 비슷한 다른 문서가 먼저 검색되는 사례에서 BM25 신호가 정확한 원문 제목을 찾는 데 도움이 됐습니다. 다만 5문항은 고유명사 문제를 확인하기 위한 작은 회귀 세트이므로 전체 질문 성능으로 확대 해석하지 않습니다.
-
-- [Hybrid 검색 실행 가이드](docs/hybrid_retrieval_guide.md)
+- [Hybrid 검색 가이드](docs/hybrid_retrieval_guide.md)
 - [Dense·BM25·Hybrid 평가 보고서](docs/hybrid_retrieval_evaluation_report.md)
 - [문화재 고유명사 회귀 보고서](docs/named_heritage_retrieval_regression_report.md)
 
-## 6. 답변 생성과 출처 검증
+## 6. 답변과 출처 검증
 
 ### 설명 수준
 
-| 코드 | 용도 | 권장 길이 |
+| 화면 표시 | 내부 코드 | 설명 기준 |
 | :--- | :--- | :--- |
-| `easy` | 쉬운 단어와 짧은 문장 중심 | 약 100자 |
-| `general` | 배경과 핵심 특징을 함께 설명 | 약 500자 |
-| `advanced` | 맥락과 전문 내용을 더 자세히 설명 | 약 500~900자 |
+| 쉽게 설명 | `easy` | 쉬운 단어와 짧은 문장으로 핵심부터 설명 |
+| 일반 설명 | `general` | 핵심 사실과 배경·특징·의미를 균형 있게 설명 |
+| 깊이 있게 | `advanced` | 역사적 맥락과 정확한 용어를 포함해 자세히 설명 |
 
-글자 수는 문장을 억지로 자르는 절대 제한이 아니라 설명 수준의 차이를 확인하기 위한 권장 범위입니다.
+글자 수는 답변을 억지로 자르는 절대 제한이 아니라 수준 차이를 확인하기 위한 권장 범위로 사용합니다. 실제 답변의 가독성 개선은 PR #27에서 추가 검토 중입니다.
 
 ### 응답 유형
 
-| 코드 | 사용자에게 보여주는 의미 |
+| 응답 유형 | 의미 |
 | :--- | :--- |
 | `answered` | 검색 근거로 정상 답변 |
 | `insufficient_evidence` | 답변에 필요한 근거가 부족함 |
-| `needs_clarification` | 대상을 특정하기 위한 추가 질문이 필요함 |
-| `corrected_premise` | 질문의 잘못된 전제를 근거로 정정함 |
-| `safety_refusal` | 비밀 정보·Prompt Injection 등 안전상 거절함 |
-| `out_of_scope` | 문화유산 안내 서비스 범위를 벗어남 |
+| `needs_clarification` | 질문 대상을 특정하기 위한 추가 확인이 필요함 |
+| `corrected_premise` | 질문에 포함된 잘못된 전제를 근거로 정정함 |
+| `safety_refusal` | 비밀 요청·Prompt Injection 등 안전상 거절함 |
+| `out_of_scope` | 서비스 범위를 벗어난 질문임 |
 
-생성 모델은 답변에 사용한 `used_chunk_ids`를 반환합니다. RAG Service는 이 ID가 같은 요청에서 실제로 검색된 청크인지 검사하고, 유효한 청크의 제목·URL·본문을 복사해 Citation을 구성합니다. 검색되지 않은 ID를 출처로 제시하면 사용자 응답 유형이 아니라 시스템 검증 오류인 `generation_error`로 처리합니다.
-
-- [Track B 생성 계약](docs/track_b/02_generation_contract.md)
-- [Prompt Baseline](docs/track_b/03_prompt_baseline.md)
-- [생성·Fine-tuning 평가 기준](docs/track_b/04_generation_evaluation_criteria.md)
+정상 답변과 전제 정정에서는 모델이 반환한 `used_chunk_ids`를 검사합니다. 검색 결과에 없는 청크 ID가 들어오면 출처를 임의로 만들지 않고 시스템 검증 오류인 `generation_error`로 처리합니다.
 
 ## 7. 설치와 실행
 
-### 준비 사항
+### 7.1 준비 사항
 
 - Python 3.12 권장
 - Git
-- 실제 검색 시 OpenAI API 키와 Pinecone API 키
-- 전체 Hybrid 검색 시 팀 공유 드라이브의 청크 JSONL
+- 실제 검색용 OpenAI Platform API 키와 Pinecone API 키
+- 답변 생성용 Ollama HTTP 주소
+- Hybrid 검색용 `aks_full_chunks.jsonl`
 
-### 저장소와 가상환경
+### 7.2 설치
 
 ```powershell
 git clone https://github.com/SpicyAutumn/SKN33-3rd-1Team.git
@@ -198,19 +179,15 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-macOS/Linux에서는 가상환경을 다음과 같이 활성화합니다.
+macOS/Linux에서는 `source .venv/bin/activate`로 가상환경을 활성화합니다.
 
-```bash
-source .venv/bin/activate
-```
-
-### 환경 변수
+### 7.3 환경 변수
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-`.env`에는 본인이 발급받은 값을 입력합니다. 실제 키는 Git, 문서, 화면 또는 채팅에 올리지 않습니다.
+`.env`의 자리표시자를 실제 값으로 교체합니다. 실제 키는 GitHub, 문서, 화면 또는 팀 채팅에 올리지 않습니다.
 
 ```ini
 OPENAI_API_KEY=...
@@ -222,148 +199,140 @@ PINECONE_NAMESPACE=
 
 RAG_TOP_K=3
 RAG_MIN_RETRIEVAL_SCORE=
+
+OLLAMA_BASE_URL=...
+OLLAMA_MODEL=qwen3:8b
+OLLAMA_KEEP_ALIVE=1h
 ```
 
-`PINECONE_NAMESPACE`를 비워 두면 현재 v1 전체 데이터가 있는 기본 namespace를 사용합니다. Hybrid의 RRF 점수에는 Dense 기준선 `0.40`을 적용하지 않으므로 `RAG_MIN_RETRIEVAL_SCORE`도 비워 둡니다.
+- `PINECONE_NAMESPACE`를 비워 두면 Pinecone 화면에서 `__default__`로 보이는 기본 namespace를 사용합니다.
+- `RAG_MIN_RETRIEVAL_SCORE`는 Hybrid RRF 점수에 Dense 기준선을 잘못 적용하지 않도록 비워 둡니다.
+- `OLLAMA_MODEL`은 기본 예시이며 실제 실행 모델은 팀의 RunPod 환경에 맞게 바꿀 수 있습니다.
+- 현재 답변 생성은 Ollama가 담당하므로 `OPENAI_CHAT_MODEL`은 서비스 생성 모델을 결정하지 않습니다.
 
-### Streamlit 화면
+### 7.4 BM25 인덱스 준비
 
-```powershell
-python -m streamlit run app/app.py
-```
-
-현재 `main`의 Streamlit 앱은 UI 흐름을 확인하기 위한 Mock 중심 화면입니다. 실제 Pinecone 검색·LLM 답변·평가 결과 연결은 통합 작업의 병합 상태를 확인한 뒤 README를 갱신합니다.
-
-### Hybrid 검색
-
-팀 공유 드라이브에서 받은 `aks_full_chunks.jsonl`을 다음 위치에 둡니다.
+팀 공유 드라이브에서 받은 전체 청크 파일을 다음 위치에 둡니다.
 
 ```text
 data/processed/aks_full_chunks.jsonl
 ```
 
 ```powershell
-# 로컬 BM25 인덱스 생성
-.\.venv\Scripts\python.exe scripts\build_aks_bm25.py
-
-# Pinecone Dense와 BM25를 결합해 검색
-.\.venv\Scripts\python.exe scripts\search_hybrid_aks.py "경복궁에 대해 알려줘" --top-k 3
+python scripts/build_aks_bm25.py --force
 ```
 
-이 검색은 질문 임베딩을 위해 OpenAI API를 호출하고 Pinecone을 읽기 전용으로 조회합니다. 벡터를 다시 적재하거나 변경하지 않습니다.
+생성 결과는 `data/processed/aks_bm25_v1.sqlite3`입니다. 이 파일이 있으면 Hybrid 검색을 사용하고, 없으면 Pinecone Dense 검색으로 자동 전환됩니다.
 
-## 8. 테스트와 평가
-
-### 자동 테스트
+### 7.5 Streamlit 실행
 
 ```powershell
-python -m pytest
+python run.py
 ```
 
-자동 테스트는 데이터 처리, 청크 계약, 검색 결합, RAG Service 계약, 응답 유형과 평가 데이터 형식을 확인합니다. 실제 외부 API 연결과 답변 품질은 별도의 소규모 실행 및 사람 검토가 필요합니다.
+필수 환경 변수가 없으면 화면 확인용 Mock 모드로 실행됩니다. 필수 값이 모두 있으면 Pinecone 검색과 Ollama 답변을 사용하는 실제 RAG 모드로 전환됩니다.
 
-### 검색 평가 재실행
+## 8. 테스트
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\evaluate_hybrid_retrieval.py --top-k 3
+python -m pytest -q
 ```
 
-이 명령은 Dev 검색 평가 대상 25문항을 Pinecone에 읽기 전용으로 질의하고 OpenAI Embeddings API를 호출합니다.
+자동 테스트는 데이터 처리, 청크 계약, 검색 결합, RAG Service, 응답 검증과 화면 연결을 확인합니다. 실제 API 인증, RunPod 연결 상태와 답변 내용의 품질까지 자동 테스트가 보장하는 것은 아니므로 발표 전 대표 질문을 직접 실행해 확인합니다.
 
-### 프로젝트 평가 범위
+권장 대표 질문은 다음과 같습니다.
 
-산출물 안내의 평가 방법 중 현재 프로젝트가 실제로 사용한 기술을 중심으로 다음을 기록합니다.
+- `경복궁에 대해 알려줘`
+- `길쌈노래에 대해 설명해줘`
+- `실학이 무엇인지 알려줘`
+- `직지에 대해 알려줘`
+- 모호한 질문·잘못된 전제·범위 밖 질문 각 1건
 
-| 대상 | 핵심 확인 내용 | 지표·방법 |
+## 9. 3차 프로젝트에서 잘 반영한 점
+
+| 잘한 점 | 의미 |
+| :--- | :--- |
+| 전수 데이터 검증 | 단순히 많이 수집하는 데서 끝나지 않고 누락·중복·오류와 제외 이유를 기록했습니다. |
+| 실패 사례 중심 개선 | `경복궁`, `직지`처럼 실제로 틀린 검색을 확인하고 BM25·Hybrid 검색으로 보완했습니다. |
+| 검색과 생성의 책임 분리 | 검색 실패와 답변 생성 실패를 나누어 원인을 확인할 수 있게 했습니다. |
+| 출처 위조 방지 | 모델이 작성한 출처를 그대로 믿지 않고 실제 검색 청크 ID와 대조합니다. |
+| 재현 가능한 평가 | 같은 질문과 조건에서 Dense·BM25·Hybrid를 비교하고 수치와 한계를 함께 기록했습니다. |
+| 투명한 사용자 화면 | 최종 답변뿐 아니라 검색·근거 선택·생성 과정을 확인할 수 있게 구성했습니다. |
+| 과도한 기능 확장 억제 | 시간 안에 검증하기 어려운 Fine-tuning과 범용 모델 비교를 3차 완료 기능으로 주장하지 않았습니다. |
+
+## 10. 제한 사항과 향후 보완
+
+### 발표 전 확인이 필요한 항목
+
+- PR #25·#27·#28의 최종 병합 여부와 서로 겹치는 화면·평가 코드 확인
+- 팀원 환경에서 BM25 인덱스, Pinecone, RunPod Ollama의 실제 연결 확인
+- 대표 질문에 대한 답변 내용, 출처, 근거 문장과 응답시간 확인
+- 제출용 ZIP, 시스템 아키텍처 이미지/PDF, 테스트 결과 PDF의 최종 파일 목록 확인
+
+### 기능상 제한
+
+| 현재 제한 | 영향 | 후속 보완 방향 |
 | :--- | :--- | :--- |
-| 데이터셋 | 결측·중복·누락·출처·처리 결과 | 문서·청크 수, 오류 수, 체크섬 |
-| Retriever·Hybrid | 정답 문서가 상위에 검색되는가 | Hit@1, Hit@3, MRR, 평균 검색 시간 |
-| 생성 답변 | 질문과 근거에 맞고 수준을 구분하는가 | 자동 계약 검사, 평가표, LLM 보조 평가, 사람 표본 검토 |
-| 환각·출처 | 근거 밖 내용을 만들지 않는가 | 근거 충실성, 인용 정확성, `used_chunk_ids` 검사 |
-| 시스템 통합 | 질문부터 답변·출처까지 이어지는가 | E2E 성공 여부, 응답시간, 오류 기록 |
-| Fine-tuning | 적용 전후 품질이 실제로 개선되는가 | 동일 조건 비교; 미실행 시 결과로 주장하지 않음 |
+| 오타·줄임말 후보 확인이 완전하지 않음 | `경북궁`, `직지` 같은 입력에서 다른 문서를 고를 수 있음 | 제목·별칭 후보 검색과 `needs_clarification` 연결 |
+| 복합 질문을 하나의 긴 질문으로 검색 | 여러 질문 중 일부 근거가 빠질 수 있음 | 질문 분해 → 항목별 검색·근거 판정·답변 |
+| BM25 DB가 각 PC의 로컬 파일 | 파일이 없으면 고유명사 보완 효과가 사라짐 | 전달 파일·체크섬·자동 구축 절차 정리 |
+| 외부 서비스 의존 | OpenAI, Pinecone, RunPod 상태에 따라 실행이 실패할 수 있음 | Mock 시연 결과와 장애 안내 준비 |
+| 답변 평가 표본이 작음 | 전체 질문 품질을 대표하기 어려움 | Dev와 분리된 Holdout 확대 및 사람 표본 평가 |
+| 텍스트 중심 서비스 | 이미지·영상·음성 자료를 함께 설명하지 못함 | 권리 조건 확인 후 멀티모달 확장 검토 |
+| Fine-tuning 미실행 | 개선 효과를 수치로 비교할 수 없음 | Prompt Baseline이 부족한 행동을 먼저 확인한 뒤 LoRA/QLoRA 비교 |
 
-현재 사용하지 않은 Reranker, LangGraph Agent, Tool Calling, GraphRAG 등의 평가는 제출 항목 수를 채우기 위해 임의로 추가하지 않습니다.
+### 4차 프로젝트 확장 후보
 
-## 9. 저장소 구조
-
-```text
-.
-├── app/                    # Streamlit 화면과 화면 구성요소
-├── data/
-│   ├── evaluation/        # Dev·Holdout·회귀 평가 질문
-│   ├── manifest.csv       # 원본 추적표
-│   ├── processed/         # 대용량 처리 결과는 Git 제외
-│   └── raw/               # 원본 데이터는 Git 제외
-├── docs/                   # 설계·계약·평가·결정 기록
-├── outputs/                # 검증 보고서와 로컬 평가 결과
-├── scripts/                # 수집·검증·청킹·검색·평가 실행 파일
-├── src/
-│   ├── aks_data/          # AKS 데이터 수집·설정
-│   ├── evaluation/        # 평가 사례·서비스 지표
-│   ├── rag_indexing/      # 청킹·Pinecone·BM25·Hybrid 검색
-│   └── rag_service/       # 근거 판정·안전·응답 검증·Citation 조립
-├── tests/                  # 자동 테스트
-├── .env.example
-├── requirements.txt
-└── README.md
-```
-
-## 10. 제출 산출물 준비
-
-| 제출 파일 | 저장소의 근거 자료 | 준비 상태 |
-| :--- | :--- | :---: |
-| `1팀_수집_및_전처리_데이터.zip` | `data/manifest.csv`, 데이터 문서 카드, 전처리·검증 자료 | 패키징 필요 |
-| `1팀_시스템_아키텍처.PNG 또는 PDF` | `docs/03_system_architecture.md`, 실제 통합 구조 | 이미지/PDF 제작 필요 |
-| `1팀_RAG기반_LLM(프로젝트명).zip` | 전체 코드, `requirements.txt`, 이 README | 최종 병합 후 패키징 |
-| `1팀_테스트계획_및_결과보고서.pdf` | 검색 보고서, 생성 평가 기준, 통합 테스트 결과 | 최종 결과 취합·PDF 제작 필요 |
-
-GitHub의 원본 데이터·비밀 키 제외 원칙과 제출용 ZIP의 포함 범위는 다를 수 있으므로, 최종 패키징 전에 파일 목록과 공개 가능 여부를 다시 확인합니다.
+- 오타·별칭 후보를 이용한 자연스러운 재확인 질문
+- 복합 질문 분해와 하위 질문별 근거 부족 안내
+- Dense·BM25·Hybrid 뒤의 relevance filter 또는 reranker 비교
+- 여러 Ollama/OpenAI 호환 모델을 같은 조건에서 비교하는 범용 생성 구조
+- Prompt Baseline과 Fine-tuning 전후 품질·속도·자원 사용량 비교
+- 더 큰 Holdout과 RAGAS·사람 평가를 결합한 답변 품질 평가
 
 ## 11. 팀 역할
 
-| 이름 | 주요 담당 |
+| 이름 | 주요 담당·기여 영역 |
 | :--- | :--- |
-| 채수환 | 프로젝트 목표·범위, 일정, 작업 조정, 결과물 통합 |
-| 김유진 | API 수집, 원본 저장, 출처·라이선스, manifest |
-| 권세진 (팀장) | 정제·청킹·임베딩·Vector DB·Retriever·검색 평가 |
-| 신가을 | Prompt Baseline, 생성 평가, Fine-tuning 데이터·학습·비교 |
-| 이준희 | RAG Chain, LLM 연동, 근거 판정, Citation, 안전·통합 평가 |
-| 김문규 | Streamlit, UX, 실제 응답 연결, 시연·배포·발표 |
+| 채수환 | 프로젝트 목표·범위, 일정, 작업 조정과 결과물 통합 |
+| 김유진 | API 수집, 원본 저장, 출처·라이선스와 manifest 관리 |
+| 권세진 (팀장) | 정제·청킹·임베딩·Vector DB·Retriever와 검색 평가 |
+| 신가을 | Prompt Baseline, 생성 평가, Fine-tuning 데이터·학습·비교 설계 |
+| 이준희 | RAG Chain·응답 계약·근거 판정·통합 평가 설계와 검토 |
+| 김문규 | Streamlit·UX, 실제 RAG·Ollama 연결, 시연·배포·발표 |
 
-담당 영역은 주 책임을 뜻하며, 연결되는 계약과 최종 결과는 관련 담당자가 함께 확인합니다.
+담당 영역은 혼자 모든 작업을 수행한다는 뜻이 아닙니다. 서로 연결되는 계약과 최종 동작은 관련 담당자가 함께 검토합니다.
 
-## 12. 현재 한계와 향후 확장
+## 12. 제출 산출물 준비
 
-- 실제 Chat 모델과 생성 컴포넌트 연결 및 공식 Baseline 결과가 아직 확정되지 않았습니다.
-- 의미 기반 EvidenceChecker와 Hybrid 검색의 최종 통합 상태를 확인해야 합니다.
-- Streamlit의 실제 검색·생성·평가 연결은 Draft 검토 결과에 따라 갱신해야 합니다.
-- Dev 25문항과 고유명사 5문항은 초기 비교용이므로 더 큰 Holdout 평가가 필요합니다.
-- 사용자의 오타를 후보로 보정하는 기능은 아직 없습니다.
-- 여러 질문을 한 문장에 입력했을 때 하위 질문별로 검색하고 근거를 판정하는 기능은 아직 없습니다.
-- 문서당 최대 청크 수, `top_k`, 후보 수, RRF 가중치는 한 조건씩 추가 비교해야 합니다.
-- Reranker와 Fine-tuning은 Baseline에서 실제 필요성이 확인될 때 후속 실험으로 검토합니다.
+| 제출 파일 | 저장소의 근거 자료 | 남은 작업 |
+| :--- | :--- | :--- |
+| `1팀_수집_및_전처리_데이터.zip` | manifest, 데이터 문서 카드, 전처리·검증 자료 | 제출 범위와 공개 가능 여부 최종 확인 |
+| `1팀_시스템_아키텍처.PNG 또는 PDF` | 실제 인덱싱·검색·생성·화면 흐름 | 최신 통합 구조로 이미지/PDF 제작 |
+| `1팀_RAG기반_LLM(프로젝트명).zip` | 코드, `requirements.txt`, README | 최종 PR 병합 후 실행 검증·패키징 |
+| `1팀_테스트계획_및_결과보고서.pdf` | 검색 보고서, 생성 평가 기준, 통합 결과 | 미병합 평가 결과 확인 후 PDF 제작 |
 
-오타 확인, 복합 질문 분해, 하위 질문별 근거 판정, 재정렬 모델 비교는 4차 프로젝트 확장 후보로 관리합니다.
+## 13. 주요 문서
 
-## 13. 관련 문서
-
-- [프로젝트 정의](docs/01_project_definition.md)
 - [데이터 전처리 보고서](docs/02_data_preprocessing_report.md)
 - [시스템 아키텍처](docs/03_system_architecture.md)
 - [테스트 계획 및 결과](docs/04_test_plan_and_results.md)
-- [데이터 문서 카드](docs/document-card.md)
-- [의사결정 기록](docs/decision_log.md)
+- [RetrievedContext 계약](docs/retrieved_context_contract.md)
 - [Track B 역할과 범위](docs/track_b/01_role_and_scope.md)
-- [Track B 생성 계약](docs/track_b/02_generation_contract.md)
+- [생성 결과 계약](docs/track_b/02_generation_contract.md)
+- [Prompt Baseline](docs/track_b/03_prompt_baseline.md)
+- [생성·Fine-tuning 평가 기준](docs/track_b/04_generation_evaluation_criteria.md)
+- [Streamlit 인계 문서](docs/track_c/STREAMLIT_HANDOFF.md)
+
+> 저장소의 최종 디렉터리 분류와 문서 재배치는 팀 협의 후 정리합니다. 이 README에서는 현재 동작 확인에 필요한 실행 파일과 이미 합의된 핵심 문서만 안내하며, 임의로 폴더 구조를 확정하거나 변경하지 않습니다.
 
 ## 14. 보안과 이용 조건
 
-- `.env`, API 키, 비밀번호, 토큰을 Git에 올리지 않습니다.
-- 원본 JSON·JSONL, BM25 DB, 벡터 파일은 저장소에 포함하지 않습니다.
-- 사용한 문서의 기관·항목명·원문 URL을 표시합니다.
-- 한국민족문화대백과사전의 텍스트와 미디어 이용 조건을 구분합니다.
+- `.env`, API 키, 비밀번호와 토큰을 GitHub에 올리지 않습니다.
+- 원본 JSON·JSONL, BM25 DB와 벡터 파일은 저장소에 포함하지 않습니다.
+- 답변에는 한국민족문화대백과사전의 항목명과 원문 URL을 표시합니다.
+- 텍스트와 미디어의 이용 조건을 구분합니다.
 - 외부 API 평가를 반복 실행하기 전에 호출량과 비용을 확인합니다.
 - 주요 변경은 Pull Request와 Review를 거쳐 병합합니다.
 
-자세한 협업 방법은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고합니다.
+협업 방법은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고합니다.

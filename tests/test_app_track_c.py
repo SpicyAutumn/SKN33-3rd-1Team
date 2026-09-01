@@ -21,7 +21,7 @@ import regions  # noqa: E402
 import retrieval  # noqa: E402
 from components.citations import group_by_document  # noqa: E402
 from tabs.chat import _reusable_contexts  # noqa: E402
-from tabs.explore import _build_payload  # noqa: E402
+import heritage_graph  # noqa: E402
 
 
 def context(
@@ -239,31 +239,50 @@ class RegionTest(unittest.TestCase):
         self.assertIsNone(regions.detect("훈민정음", "본문"))
 
 
-class ExplorationMapTest(unittest.TestCase):
-    METADATA = {
-        "field": "종교·철학/불교",
-        "era": "고대/남북국/통일신라",
-        "primary_type": "유적/건물",
-    }
+class HeritageGraphTest(unittest.TestCase):
+    """탐험 지도는 만든 목록 전체를 재료로 쓴다. 검색 결과 3건이 아니다."""
 
-    def test_axes_are_labelled_and_peers_linked(self):
-        payload = _build_payload(
-            "석굴암",
-            [
-                context(chunk_id="c1", document_id="d1", title="경주 석굴암 석굴", rank=1, metadata=self.METADATA),
-                context(chunk_id="c2", document_id="d2", title="경주 동천동 마애삼존불", rank=2, metadata=self.METADATA),
-            ],
-        )
-        labels = [k["keyword"] for k in payload["keywords"]]
-        self.assertIn("분야 : 종교·철학/불교", labels)
-        self.assertIn("시대 : 고대", labels)
-        self.assertIn("지역 : 경주", labels)
-        self.assertEqual(payload["root"], "경주 석굴암 석굴")
-        peers = [c["keyword"] for c in payload["related"]["시대 : 고대"]]
-        self.assertIn("경주 동천동 마애삼존불", peers)
+    @classmethod
+    def setUpClass(cls):
+        cls.book = heritage_graph.catalog()
 
-    def test_no_contexts_returns_none(self):
-        self.assertIsNone(_build_payload("질문", []))
+    def test_catalog_covers_the_whole_corpus(self):
+        self.assertGreater(len(self.book.entries), 70_000)
+
+    def test_top_level_folds_sub_periods(self):
+        self.assertEqual(heritage_graph.top_level("조선/조선 전기"), "조선")
+        self.assertEqual(heritage_graph.top_level("조선/조선 전기 | 조선/조선 후기"), "조선")
+        self.assertEqual(heritage_graph.top_level(""), "")
+
+    def test_lookup_by_title_and_document_id(self):
+        entry = self.book.find("경복궁")
+        self.assertIsNotNone(entry)
+        self.assertEqual(self.book.find(entry.document_id).title, "경복궁")
+
+    def test_parts_are_found_by_title_prefix(self):
+        titles = {e.title for e in self.book.titles_starting_with("경복궁")}
+        self.assertIn("경복궁 경회루", titles)
+        self.assertNotIn("경복궁", titles)
+
+    def test_region_comes_from_the_title(self):
+        self.assertEqual(self.book.find("강릉 오죽헌").region, "강릉")
+
+    def test_map_without_search_still_has_branches(self):
+        """검색 연결이 없어도 만든 목록만으로 그릴 수 있는 가지는 남는다."""
+        payload = heritage_graph.build_map("경복궁", neighbors=None)
+        self.assertEqual(payload["root"]["title"], "경복궁")
+        titles = [b["title"] for b in payload["branches"]]
+        self.assertIn("이 안에 있는 것", titles)
+
+    def test_unknown_root_returns_none(self):
+        self.assertIsNone(heritage_graph.build_map("없는유산", neighbors=None))
+
+    def test_same_title_is_not_repeated(self):
+        """`경주`나 `훈민정음`처럼 이름이 겹치는 문서가 여럿 있다."""
+        payload = heritage_graph.build_map("훈민정음", neighbors=None)
+        titles = [n["title"] for b in payload["branches"] for n in b["nodes"]]
+        self.assertEqual(len(titles), len(set(titles)))
+        self.assertNotIn("훈민정음", titles)
 
 
 class HybridSimilarityTest(unittest.TestCase):

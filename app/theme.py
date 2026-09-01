@@ -197,6 +197,33 @@ div[data-testid="stMetric"] {
 }
 div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
 
+/* ── 탐험 지도 ────────────────────────────────────── */
+.map-root {
+  margin: .2rem 0 1rem;
+  padding: 1.1rem 1.3rem;
+  border: 1px solid var(--heritage-green-bright);
+  border-left: 4px solid var(--heritage-gold);
+  border-radius: 14px;
+  background: var(--heritage-tint);
+}
+.map-root h3 { margin: .15rem 0 .6rem; font-family: var(--heritage-display); }
+.map-root-label {
+  margin: 0;
+  font-size: .74rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .6;
+}
+.map-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.map-chip {
+  padding: .22rem .6rem;
+  border: 1px solid var(--heritage-green-bright);
+  border-radius: 999px;
+  font-size: .78rem;
+  background: var(--heritage-tint-strong);
+}
+.map-chip b { margin-right: .3rem; opacity: .62; font-weight: 600; }
+
 /* ── 유사도 막대 ──────────────────────────────────── */
 .eval-chart {
   margin: .5rem 0 1rem;

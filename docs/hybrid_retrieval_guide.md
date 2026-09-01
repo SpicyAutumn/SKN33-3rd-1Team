@@ -27,9 +27,12 @@ candidate_k = 10
 rrf_k = 60
 dense_weight = 1.5
 bm25_weight = 1.0
+max_chunks_per_document = 2
 ```
 
-`candidate_k=10`, 최종 `top_k=3`, `rrf_k=60`, `dense_weight=1.5`, `bm25_weight=1.0`은 현재 Dev 비교를 위한 **초기 기준값**이다. 서비스 확정값이 아니며, 질문 세트·문서당 청크 제한·근거 판정 기준을 팀에서 합의한 뒤 별도 실험으로 조정한다. `rrf_k=60`은 통상적인 RRF 기준값이고, `dense_weight=1.5`, `bm25_weight=1.0`은 아래 Dev 비교에서 선택했다. RRF 설정 변경은 검색 로직만 바꾸며 청킹·임베딩·Pinecone 재적재가 필요 없다.
+`candidate_k=10`, 최종 `top_k=3`, `rrf_k=60`, `dense_weight=1.5`, `bm25_weight=1.0`, `max_chunks_per_document=2`는 현재 Dev 비교를 위한 **초기 기준값**이다. 서비스 확정값이 아니며, 질문 세트·근거 판정 기준을 팀에서 합의한 뒤 별도 실험으로 조정한다. `rrf_k=60`은 통상적인 RRF 기준값이고, `dense_weight=1.5`, `bm25_weight=1.0`은 아래 Dev 비교에서 선택했다. RRF 설정 변경과 문서당 청크 제한은 검색 로직만 바꾸며 청킹·임베딩·Pinecone 재적재가 필요 없다.
+
+하이브리드는 Dense·BM25에서 각각 `candidate_k=10`개를 받은 뒤 RRF로 합친다. 그 순서대로 결과를 고르되, **같은 `document_id`의 청크는 최종 결과에 최대 2개까지만** 남긴다. 즉 최종 `top_k=3`은 총 3개 청크를 뜻하며, 한 문서가 3자리를 모두 차지하는 것을 막아 다른 원문도 함께 근거 후보로 보여 주는 규칙이다.
 
 ## 평가 보고서
 
@@ -95,7 +98,6 @@ section, retrieval_rank, retrieval_score, score_type, metadata
 
 ## 분리한 후속 실험
 
-- 문서당 최대 2개 청크 제한
 - score threshold
 - `candidate_k`, 최종 `top_k`, RRF 가중치·`rrf_k` 튜닝
 - BM25용 한국어 형태소 분석기 적용 여부

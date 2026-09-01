@@ -56,6 +56,34 @@ def reciprocal_rank_fusion(
     return fused
 
 
+def limit_chunks_per_document(
+    results: list[dict[str, Any]], *, top_k: int, max_chunks_per_document: int
+) -> list[dict[str, Any]]:
+    """Keep diverse documents while preserving the RRF order of selected chunks."""
+
+    if top_k < 1:
+        raise ValueError("top_k must be at least 1")
+    if max_chunks_per_document < 1:
+        raise ValueError("max_chunks_per_document must be at least 1")
+
+    selected: list[dict[str, Any]] = []
+    selected_per_document: dict[str, int] = {}
+    for result in results:
+        document_id = result.get("document_id")
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise ValueError("every result must have a non-empty document_id")
+        if selected_per_document.get(document_id, 0) >= max_chunks_per_document:
+            continue
+        selected.append(result)
+        selected_per_document[document_id] = selected_per_document.get(document_id, 0) + 1
+        if len(selected) == top_k:
+            break
+
+    for rank, result in enumerate(selected, start=1):
+        result["retrieval_rank"] = rank
+    return selected
+
+
 class HybridRetriever:
     """Combine Pinecone dense retrieval and local BM25 through RRF."""
 
@@ -68,15 +96,19 @@ class HybridRetriever:
         rrf_k: int = 60,
         dense_weight: float = 1.5,
         bm25_weight: float = 1.0,
+        max_chunks_per_document: int = 2,
     ) -> None:
         if candidate_k < 1:
             raise ValueError("candidate_k must be at least 1")
+        if max_chunks_per_document < 1:
+            raise ValueError("max_chunks_per_document must be at least 1")
         self.dense_retriever = dense_retriever
         self.bm25_retriever = bm25_retriever
         self.candidate_k = candidate_k
         self.rrf_k = rrf_k
         self.dense_weight = dense_weight
         self.bm25_weight = bm25_weight
+        self.max_chunks_per_document = max_chunks_per_document
 
     def search(self, question: str, *, top_k: int = 5) -> list[dict[str, Any]]:
         candidate_k = max(top_k, self.candidate_k)
@@ -89,11 +121,28 @@ class HybridRetriever:
         """Fuse a precomputed dense result list without embedding the question again."""
         candidate_k = max(top_k, self.candidate_k)
         bm25_results = self.bm25_retriever.search(question, top_k=candidate_k)
-        return reciprocal_rank_fusion(
+        return self.fuse_results(dense_results, bm25_results, top_k=top_k)
+
+    def fuse_results(
+        self,
+        dense_results: list[dict[str, Any]],
+        bm25_results: list[dict[str, Any]],
+        *,
+        top_k: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Fuse candidates, then apply the configured per-document chunk limit."""
+
+        candidate_k = max(top_k, self.candidate_k)
+        fused_candidates = reciprocal_rank_fusion(
             dense_results,
             bm25_results,
-            top_k=top_k,
+            top_k=candidate_k,
             rrf_k=self.rrf_k,
             dense_weight=self.dense_weight,
             bm25_weight=self.bm25_weight,
+        )
+        return limit_chunks_per_document(
+            fused_candidates,
+            top_k=top_k,
+            max_chunks_per_document=self.max_chunks_per_document,
         )

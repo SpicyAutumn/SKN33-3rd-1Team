@@ -6,10 +6,12 @@ from rag_indexing.bm25_store import BM25Retriever, build_bm25_index, tokenize_ko
 from rag_indexing.hybrid_retriever import HybridRetriever, reciprocal_rank_fusion
 
 
-def _context(chunk_id: str, rank: int, score: float) -> dict[str, object]:
+def _context(
+    chunk_id: str, rank: int, score: float, *, document_id: str | None = None
+) -> dict[str, object]:
     return {
         "chunk_id": chunk_id,
-        "document_id": f"aks:{chunk_id}",
+        "document_id": document_id or f"aks:{chunk_id}",
         "title": chunk_id,
         "content": f"{chunk_id} 본문",
         "source_url": None,
@@ -178,3 +180,32 @@ def test_hybrid_retriever_can_fuse_a_precomputed_dense_search() -> None:
     results = hybrid.search_from_dense_results("질문", [_context("dense", 1, 0.9)], top_k=3)
 
     assert [result["chunk_id"] for result in results] == ["dense", "bm25"]
+
+
+def test_hybrid_retriever_limits_each_document_to_two_chunks_after_fusion() -> None:
+    class EmptyBM25:
+        def search(self, _: str, *, top_k: int = 5) -> list[dict[str, object]]:
+            assert top_k == 4
+            return []
+
+    dense_results = [
+        _context("palace-1", 1, 0.9, document_id="aks:palace"),
+        _context("palace-2", 2, 0.8, document_id="aks:palace"),
+        _context("palace-3", 3, 0.7, document_id="aks:palace"),
+        _context("shrine-1", 4, 0.6, document_id="aks:shrine"),
+    ]
+    hybrid = HybridRetriever(object(), EmptyBM25(), candidate_k=4, max_chunks_per_document=2)
+
+    results = hybrid.search_from_dense_results("질문", dense_results, top_k=3)
+
+    assert [result["chunk_id"] for result in results] == ["palace-1", "palace-2", "shrine-1"]
+    assert [result["retrieval_rank"] for result in results] == [1, 2, 3]
+
+
+def test_hybrid_retriever_rejects_a_zero_document_chunk_limit() -> None:
+    try:
+        HybridRetriever(object(), object(), max_chunks_per_document=0)
+    except ValueError as exc:
+        assert "max_chunks_per_document" in str(exc)
+    else:
+        raise AssertionError("HybridRetriever must require at least one chunk per document")

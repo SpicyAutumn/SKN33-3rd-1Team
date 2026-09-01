@@ -27,7 +27,15 @@ def render() -> None:
 
     live = retrieval.is_live()
     if live:
-        st.caption("✅ 실제 검색 연결됨 — Pinecone에서 근거를 찾습니다. 답변 문장 생성은 아직 준비 중입니다.")
+        if retrieval.generation_mode() == "prompt":
+            st.caption(
+                "✅ 실제 검색·답변 연결됨 — Pinecone에서 근거를 찾고 "
+                f"`{retrieval.generation_model_id()}`가 그 근거 안에서만 문장을 만듭니다."
+            )
+        else:
+            st.caption(
+                "✅ 실제 검색 연결됨 — Pinecone에서 근거를 찾습니다. 답변 문장 생성은 아직 준비 중입니다."
+            )
     else:
         # [제거 예정] .env 키를 받으면 이 안내와 아래 응답 유형 선택 항목을 함께 지운다.
         st.caption("🔧 Mock 응답 모드 — 화면 확인용입니다. `.env`에 키를 넣으면 실제 검색으로 자동 전환됩니다.")

@@ -305,6 +305,51 @@ def build_retriever():
     return HybridWithSimilarity(dense, BM25Retriever(path))
 
 
+DEFAULT_GENERATION_MODEL = "gpt-4o-mini"
+
+
+def generation_model_id() -> str:
+    """답변 문장을 만드는 모델. `RAG_GENERATION_MODEL`로 바꿀 수 있다.
+
+    어떤 모델을 쓸지는 생성 담당이 정할 일이라(계약 문서의 `model_id`가 아직
+    `TBD`다) 화면 쪽에서 못 박지 않고 환경 변수로 열어 둔다.
+    """
+    load_env()
+    return os.getenv("RAG_GENERATION_MODEL", "").strip() or DEFAULT_GENERATION_MODEL
+
+
+def build_generator():
+    """생성 컴포넌트가 있으면 그것을 쓰고, 없으면 검색 근거만 넘기는 임시 생성기.
+
+    `src/generation`은 PR #21이 병합돼야 생긴다. 그 전에는 임시 생성기로
+    내려가므로 이 브랜치만 받은 사람도 화면이 그대로 돌아간다.
+    지금 어느 쪽으로 돌고 있는지는 공정 견학 탭 5단계에 표시한다.
+    """
+    try:
+        from generation import PromptBaselineGenerator
+        from langchain_openai import ChatOpenAI
+    except ImportError:
+        return EvidencePassthroughGenerator()
+
+    model_id = generation_model_id()
+    # 근거 밖 문장을 지어내지 않는 것이 목적이므로 온도는 0으로 고정한다.
+    return PromptBaselineGenerator(
+        ChatOpenAI(model=model_id, temperature=0),
+        model_id=model_id,
+        temperature=0.0,
+    )
+
+
+def generation_mode() -> str:
+    """이번 실행이 답변 문장을 만드는지. `prompt` 또는 `passthrough`."""
+    try:
+        import generation  # noqa: F401
+        import langchain_openai  # noqa: F401
+    except ImportError:
+        return "passthrough"
+    return "prompt"
+
+
 def build_service():
     """RagService를 조립한다. 키가 없으면 RuntimeError."""
     absent = missing_env()
@@ -315,6 +360,6 @@ def build_service():
 
     return RagService(
         retriever=build_retriever(),
-        generator=EvidencePassthroughGenerator(),
+        generator=build_generator(),
         evidence_checker=ContentEvidenceChecker(),
     )

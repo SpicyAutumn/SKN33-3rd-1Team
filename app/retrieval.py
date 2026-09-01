@@ -12,6 +12,8 @@ import rag_client
 from rag_client import (  # noqa: F401 - 화면에서 그대로 사용한다
     bm25_index_chunk_count,
     bm25_index_path,
+    generation_mode,
+    generation_model_id,
     is_live,
     missing_env,
     retrieval_mode,

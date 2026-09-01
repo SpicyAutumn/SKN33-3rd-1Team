@@ -151,15 +151,27 @@ def _render_flow(result, response, contexts, used_ids, scores, documents) -> Non
             )
         )
 
-    stages.append(
-        _stage(
-            5,
-            "답변 문장이 자연스럽게 다듬어집니다.",
-            "검색된 근거 안에서만 설명 수준에 맞게 다시 씁니다."
-            "<br><span class='process-note'>준비 중 — 생성 담당 작업이 연결되면 동작합니다.</span>",
-            pending=True,
+    generation = response.get("generation_metadata") or {}
+    if retrieval.generation_mode() == "prompt":
+        stages.append(
+            _stage(
+                5,
+                "답변 문장이 자연스럽게 다듬어집니다.",
+                "검색된 근거 안에서만 설명 수준에 맞게 다시 씁니다."
+                f"<br><span class='process-note'>{escape(str(retrieval.generation_model_id()))} · "
+                f"{escape(str(generation.get('prompt_version') or 'prompt'))}</span>",
+            )
         )
-    )
+    else:
+        stages.append(
+            _stage(
+                5,
+                "답변 문장이 자연스럽게 다듬어집니다.",
+                "검색된 근거 안에서만 설명 수준에 맞게 다시 씁니다."
+                "<br><span class='process-note'>준비 중 — 생성 컴포넌트가 없어 검색 원문을 그대로 보여 드립니다.</span>",
+                pending=True,
+            )
+        )
     stages.append(
         _stage(
             6,

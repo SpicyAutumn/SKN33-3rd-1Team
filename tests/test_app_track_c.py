@@ -377,5 +377,23 @@ class CompoundQuestionTest(unittest.TestCase):
         result = rag_client.EvidencePassthroughGenerator().invoke(request)
         self.assertEqual(result["candidate_response_type"], "answered")
 
+class GenerationWiringTest(unittest.TestCase):
+    """생성 컴포넌트가 없어도 화면은 돌아가야 한다."""
+
+    def test_falls_back_when_component_is_absent(self):
+        with mock.patch.dict(sys.modules, {"generation": None}):
+            self.assertEqual(rag_client.generation_mode(), "passthrough")
+            self.assertIsInstance(
+                rag_client.build_generator(), rag_client.EvidencePassthroughGenerator
+            )
+
+    def test_model_id_is_configurable(self):
+        with mock.patch.dict(os.environ, {"RAG_GENERATION_MODEL": "gpt-4.1-mini"}):
+            self.assertEqual(rag_client.generation_model_id(), "gpt-4.1-mini")
+
+    def test_model_id_has_a_default(self):
+        with mock.patch.dict(os.environ, {"RAG_GENERATION_MODEL": ""}):
+            self.assertEqual(rag_client.generation_model_id(), rag_client.DEFAULT_GENERATION_MODEL)
+
 if __name__ == "__main__":
     unittest.main()

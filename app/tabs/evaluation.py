@@ -5,13 +5,22 @@ from html import escape
 import streamlit as st
 
 import retrieval
+from evaluation.ragas_evaluator import (
+    RagasEvaluationError,
+    evaluate_response,
+    evaluation_cache_key,
+    find_reference_record,
+)
 
 
-# 답변 품질 지표. RAGAS 네 지표 가운데 답변 층 둘만 둔다.
+# 답변 품질 지표는 새 답변이 생성되면 RAGAS LLM 심사로 자동 계산한다.
+# 같은 입력의 결과는 세션에 저장해 Streamlit 재실행 때 API를 다시 호출하지 않는다.
+# 계산할 수 없는 지표는 0점으로 만들지 않고 N/A와 이유를 표시한다.
 #
-# `context_precision`·`context_recall`은 검색 층 지표이고 계산에 정답 라벨이
-# 필요하다. 임의 질문에는 정답 라벨이 없어 늘 `평가 불가`로만 남는다. 값이
-# 나오지 않는 카드를 세워 두면 화면이 고장 난 것처럼 보인다. (PR #28)
+# RAGAS 네 지표 가운데 답변 층 둘만 둔다. `context_precision`·`context_recall`은
+# 검색 층 지표이고 계산에 정답 라벨이 필요하다. 임의 질문에는 정답 라벨이 없어
+# 늘 `평가 불가`로만 남는다. 값이 나오지 않는 카드를 세워 두면 화면이 고장 난
+# 것처럼 보인다. (#28)
 ANSWER_METRICS = {
     "faithfulness": {
         "title": "Faithfulness",
@@ -46,7 +55,7 @@ def render() -> None:
 
     _render_retrieval_quality(contexts, used)
     st.divider()
-    _render_answer_quality()
+    _render_answer_quality(result)
 
 
 def _render_retrieval_quality(contexts: list[dict], used: set[str]) -> None:
@@ -156,17 +165,68 @@ def _observations(contexts: list[dict], documents: set[str], scores: list[float]
     return notes
 
 
-def _render_answer_quality() -> None:
+def _render_answer_quality(result: dict) -> None:
     st.markdown("#### 답변 품질")
     st.caption(
-        "RAGAS 답변 층 지표 두 가지입니다. 검색 층 지표(Context Precision·Recall)는 "
-        "계산에 정답 라벨이 필요해 임의 질문에서는 잴 수 없습니다. "
-        "LLM 심사가 연결되지 않아 아직 점수를 계산하지 않습니다. 값을 지어내지 않습니다."
+        "새 답변이 생성될 때 RAGAS가 답변 층 지표 두 가지를 자동으로 계산합니다. "
+        "같은 질문·답변·검색 근거는 저장된 평가 결과를 다시 사용합니다. "
+        "검색 층 지표(Context Precision·Recall)는 계산에 정답 라벨이 필요해 "
+        "임의 질문에서는 잴 수 없습니다."
     )
 
+    question = str(result.get("question") or "").strip()
+    response = result.get("response")
+    answer = str(response.get("message") or "").strip() if isinstance(response, dict) else ""
+    contexts = result.get("retrieved_contexts")
+    contexts = contexts if isinstance(contexts, list) else []
+
+    reference_record = find_reference_record(question)
+    reference = reference_record.get("reference") if reference_record else None
+    cache_key = evaluation_cache_key(
+        question=question,
+        response=answer,
+        contexts=contexts,
+        reference=reference,
+    )
+    cache = st.session_state.setdefault("ragas_evaluation_results", {})
+    errors = st.session_state.setdefault("ragas_evaluation_errors", {})
+    evaluation_result = cache.get(cache_key)
+
+    if evaluation_result is None and cache_key not in errors and question and answer:
+        with st.spinner("RAGAS가 답변과 검색 근거를 평가하고 있습니다…"):
+            evaluation_result, _ = _evaluate_once(
+                cache=cache,
+                errors=errors,
+                cache_key=cache_key,
+                question=question,
+                answer=answer,
+                contexts=contexts,
+                reference=reference,
+            )
+
+    error_message = errors.get(cache_key)
+    if error_message:
+        st.error(error_message)
+        if st.button("평가 다시 시도", key=f"retry_ragas_{cache_key}"):
+            errors.pop(cache_key, None)
+            st.rerun()
+
     columns = st.columns(len(ANSWER_METRICS))
-    for column, detail in zip(columns, ANSWER_METRICS.values(), strict=True):
-        column.metric(detail["title"], "—", help=detail["short"])
+    for column, (metric_name, detail) in zip(
+        columns, ANSWER_METRICS.items(), strict=True
+    ):
+        column.metric(
+            detail["title"],
+            _metric_display_value(metric_name, evaluation_result),
+            help=detail["short"],
+        )
+
+    if evaluation_result:
+        st.caption(
+            f"평가 모델: {evaluation_result['judge_model']} · "
+            f"임베딩: {evaluation_result['embedding_model']} · "
+            f"평가 시간: {evaluation_result['elapsed_ms'] / 1000:.1f}초"
+        )
 
     for detail in ANSWER_METRICS.values():
         with st.expander(f"{detail['title']} · {detail['short']}"):
@@ -174,3 +234,54 @@ def _render_answer_quality() -> None:
             st.write(detail["definition"])
             st.markdown("**점수가 낮을 때 확인할 점**")
             st.write(detail["improvement"])
+
+
+def _evaluate_once(
+    *,
+    cache: dict,
+    errors: dict,
+    cache_key: str,
+    question: str,
+    answer: str,
+    contexts: list[dict],
+    reference: str | None,
+    evaluator=evaluate_response,
+) -> tuple[dict | None, str | None]:
+    """같은 입력을 한 번만 평가하고 성공 또는 오류 상태를 저장한다."""
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached, None
+    cached_error = errors.get(cache_key)
+    if cached_error:
+        return None, cached_error
+
+    try:
+        evaluation_result = evaluator(
+            question=question,
+            response=answer,
+            contexts=contexts,
+            reference=reference,
+        )
+    except RagasEvaluationError as error:
+        message = str(error)
+        errors[cache_key] = message
+        return None, message
+    except Exception:  # noqa: BLE001
+        message = "RAGAS 평가를 완료하지 못했습니다. 서버 로그를 확인해 주세요."
+        errors[cache_key] = message
+        return None, message
+
+    cache[cache_key] = evaluation_result
+    errors.pop(cache_key, None)
+    return evaluation_result, None
+
+
+def _metric_display_value(metric_name: str, evaluation_result: dict | None) -> str:
+    if not evaluation_result:
+        return "—"
+    metric = evaluation_result.get("metrics", {}).get(metric_name, {})
+    score = metric.get("score")
+    if isinstance(score, (int, float)) and not isinstance(score, bool):
+        return f"{float(score):.3f}"
+    message = str(metric.get("message") or "평가 불가")
+    return f"N/A · {message}"

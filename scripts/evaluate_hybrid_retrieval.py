@@ -17,7 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from aks_data.config import load_project_env  # noqa: E402
 from evaluation.case_loader import load_evaluation_cases  # noqa: E402
 from rag_indexing.bm25_store import BM25Retriever  # noqa: E402
-from rag_indexing.hybrid_retriever import HybridRetriever, Retriever, reciprocal_rank_fusion  # noqa: E402
+from rag_indexing.hybrid_retriever import HybridRetriever, Retriever  # noqa: E402
 from rag_indexing.pinecone_store import PineconeRetriever  # noqa: E402
 
 
@@ -144,14 +144,7 @@ def evaluate_comparison(
         bm25_results = bm25_candidates[:top_k]
 
         started_at = perf_counter()
-        hybrid_results = reciprocal_rank_fusion(
-            dense_candidates,
-            bm25_candidates,
-            top_k=top_k,
-            rrf_k=hybrid.rrf_k,
-            dense_weight=hybrid.dense_weight,
-            bm25_weight=hybrid.bm25_weight,
-        )
+        hybrid_results = hybrid.fuse_results(dense_candidates, bm25_candidates, top_k=top_k)
         hybrid_additional_durations.append(bm25_durations[-1] + (perf_counter() - started_at))
 
         dense_result = score_results(case, dense_results)
@@ -204,6 +197,7 @@ def main() -> int:
     parser.add_argument("--rrf-k", type=int, default=60)
     parser.add_argument("--dense-weight", type=float, default=1.5)
     parser.add_argument("--bm25-weight", type=float, default=1.0)
+    parser.add_argument("--max-chunks-per-document", type=int, default=2)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
     if args.top_k < 1:
@@ -220,6 +214,7 @@ def main() -> int:
         rrf_k=args.rrf_k,
         dense_weight=args.dense_weight,
         bm25_weight=args.bm25_weight,
+        max_chunks_per_document=args.max_chunks_per_document,
     )
     comparison = evaluate_comparison(dense, bm25, hybrid, cases, top_k=args.top_k)
     report = {
@@ -230,6 +225,7 @@ def main() -> int:
         "rrf_k": args.rrf_k,
         "dense_weight": args.dense_weight,
         "bm25_weight": args.bm25_weight,
+        "max_chunks_per_document": args.max_chunks_per_document,
         "reproducibility": {
             "bm25_database": str(args.bm25_database),
             "bm25_manifest": load_bm25_manifest(args.bm25_database),

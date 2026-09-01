@@ -35,6 +35,8 @@ bm25_weight = 1.0
 
 평가 대상은 PR #15 Dev의 `answered` 21건과 `corrected_premise` 4건, 총 25건이며 `top_k=3`이다. 상세 결과와 실행 조건은 [하이브리드 검색 평가 보고서](hybrid_retrieval_evaluation_report.md)에 기록한다.
 
+문화재 이름이 질문에 직접 들어간 경우는 일반 Dev 평균과 분리한 [문화재 고유명사 회귀 테스트](named_heritage_retrieval_regression_report.md)로 확인한다.
+
 | 검색 방식 | Hit@1 | Hit@3 | MRR | 평균 시간 |
 | --- | ---: | ---: | ---: | ---: |
 | Dense 단독 | **0.80 (20/25)** | 0.88 (22/25) | **0.827** | 0.590초 |
@@ -73,6 +75,12 @@ PINECONE_INDEX_HOST=인덱스-Host-주소
 .\.venv\Scripts\python.exe scripts\evaluate_hybrid_retrieval.py `
   --cases data\evaluation\aks_rag_holdout_v1.jsonl --split holdout `
   --dense-weight 1.5 --top-k 3
+
+# 문화재 고유명사 5개에서 원문 1위 여부 확인
+.\.venv\Scripts\python.exe scripts\evaluate_hybrid_retrieval.py `
+  --cases data\evaluation\aks_named_heritage_regression_v1.jsonl `
+  --split regression --top-k 3 `
+  --output outputs\aks_named_heritage_regression_result.json
 ```
 
 3번은 총 25개 질문을 Pinecone에 읽기 전용으로 질의하며, 질문 임베딩을 위해 OpenAI Embeddings API를 호출한다. Pinecone에 벡터를 추가·수정하지 않는다. 상세 결과는 Git 제외 경로인 `outputs/aks_hybrid_retrieval_dev_result.json`에 기록된다.

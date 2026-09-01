@@ -197,7 +197,7 @@ def evaluate_comparison(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Compare Dense, BM25 and BM25+RRF hybrid AKS retrieval on labelled cases.")
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
-    parser.add_argument("--split", choices=("dev", "holdout"), default="dev")
+    parser.add_argument("--split", choices=("dev", "holdout", "regression"), default="dev")
     parser.add_argument("--bm25-database", type=Path, default=DEFAULT_DATABASE)
     parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument("--candidate-k", type=int, default=10)

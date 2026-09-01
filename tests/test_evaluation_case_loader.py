@@ -47,6 +47,19 @@ class EvaluationCaseLoaderTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_evaluation_cases(path, expected_split="dev")
 
+    def test_accepts_a_separate_regression_split(self) -> None:
+        contents = (
+            '{"case_id":"REG-001","split":"regression","question":"문화재 질문",'
+            '"expected_response_type":"answered","expected_document_ids":["aks:E1"],'
+            '"rationale":"고유명사 회귀 확인","review_status":"draft"}\n'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cases.jsonl"
+            path.write_text(contents, encoding="utf-8")
+            cases = load_evaluation_cases(path, expected_split="regression")
+
+        self.assertEqual(cases[0]["case_id"], "REG-001")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -70,6 +70,32 @@ def _clean(value: Any) -> str:
     return "" if text.upper() == "NONE" else text
 
 
+def _has_final(word: str) -> bool | None:
+    """마지막 글자에 받침이 있는지. 한글이 아니면 `None`."""
+    last = word.strip()[-1:] if word.strip() else ""
+    if not ("가" <= last <= "힣"):
+        return None
+    return bool((ord(last) - 0xAC00) % 28)
+
+
+def particle(word: str, with_final: str, without_final: str) -> str:
+    """받침에 맞는 조사를 고른다. `고대으로`처럼 어긋나면 문장이 어색해진다."""
+    final = _has_final(word)
+    return without_final if final is None else (with_final if final else without_final)
+
+
+def ro_suffix(word: str) -> str:
+    """`으로` 또는 `로`. ㄹ 받침은 `로`를 쓴다.
+
+    조사만 돌려준다. 낱말을 감싸서 넘기면(`` `조선` ``) 마지막 글자가 백틱이라
+    받침 판정이 어긋난다.
+    """
+    last = word.strip()[-1:] if word.strip() else ""
+    if "가" <= last <= "힣" and (ord(last) - 0xAC00) % 28 == 8:  # ㄹ 받침
+        return "로"
+    return particle(word, "으로", "로")
+
+
 def top_level(value: str) -> str:
     """`조선/조선 전기 | 조선/조선 후기` -> `조선`."""
     first = _clean(value).split(_VALUE_SEPARATOR)[0]
@@ -397,9 +423,10 @@ def build_map(
             )
             ordered = [by_id[d] for d, _ in ranked if d in by_id] or ordered
         add(
-            "이 안에 있는 것",
-            f"이름이 `{root.title}`으로 시작하는 항목입니다.",
-            [_node(e, f"{root.title}의 일부") for e in ordered],
+            "이름이 이어지는 유산",
+            f"이름이 `{root.title}`으로 시작하는 유산입니다. "
+            "딸린 건물이거나 같은 계열의 기록입니다.",
+            [_node(e, "이름이 이어집니다") for e in ordered],
         )
         # 보여 주지 못한 구성 요소도 다른 가지에 다시 넣지 않는다. 그러지 않으면
         # `같은 시대`가 온통 `경복궁 ○○`으로 채워져 다른 유산으로 갈 길이 막힌다.
@@ -427,10 +454,10 @@ def build_map(
                 exclude_documents=used,
             )
             add(
-                f"같은 시대 · {era}",
-                f"`{era}`에 속한 항목 가운데 뜻이 가까운 순입니다.",
+                f"{era}의 다른 유산",
+                f"백과사전이 `{era}`{ro_suffix(era)} 매긴 유산 가운데 원문이 가까운 순입니다.",
                 [
-                    _node(book.by_document[d], f"{era} 시대")
+                    _node(book.by_document[d], f"{era}")
                     for d, _ in found
                     if d in book.by_document
                 ],
@@ -451,10 +478,10 @@ def build_map(
                 exclude_documents=used,
             )
             add(
-                f"같은 유형 · {kind}",
-                f"`{kind}`으로 분류된 항목입니다.",
+                f"같은 갈래 · {kind}",
+                f"백과사전이 `{kind}`{ro_suffix(kind)} 분류한 유산입니다.",
                 [
-                    _node(book.by_document[d], f"{kind} 유형")
+                    _node(book.by_document[d], f"{kind}")
                     for d, _ in found
                     if d in book.by_document
                 ],
@@ -489,8 +516,8 @@ def build_map(
             nearby = [by_id[d] for d, _ in ranked if d in by_id] or nearby
 
         add(
-            f"같은 지역 · {place}",
-            f"이름 앞머리가 `{place}`인 항목입니다.",
+            f"{place}에서 만나는 유산",
+            f"이름 앞머리가 `{place}`인 유산입니다. 함께 둘러볼 수 있습니다.",
             [_node(e, f"{place} 소재") for e in nearby],
         )
 
@@ -507,10 +534,15 @@ def build_map(
         )
         kind = top_level(root.item_type)
         add(
-            "뜻밖의 이웃",
-            (f"`{kind}`이 아닌 다른 종류의 문화유산입니다." if kind else "다른 종류의 문화유산입니다."),
+            "뜻밖에 이어지는 유산",
+            (
+                f"`{kind}`{particle(kind, '이', '가')} 아닌 갈래인데도 원문이 가까운 유산입니다. "
+                "몰랐던 연결이 여기서 나옵니다."
+                if kind
+                else "갈래를 가리지 않고 원문이 가까운 유산입니다."
+            ),
             [
-                _node(book.by_document[d], "내용이 가깝습니다")
+                _node(book.by_document[d], "원문이 가깝습니다")
                 for d, _ in found
                 if d in book.by_document
             ],

@@ -317,6 +317,19 @@ class ScoreDisplayTest(unittest.TestCase):
     def test_unmeasured_similarity_is_blank_not_zero(self):
         self.assertEqual(retrieval.format_score(None), "—")
 
+    def test_hybrid_marks_the_score_as_reference_only(self):
+        """1위 숫자가 2·3위보다 낮아 보일 수 있으므로 참고값이라고 밝힌다."""
+        present = str(Path(__file__).resolve())
+        with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": present}):
+            self.assertTrue(retrieval.score_is_reference_only())
+            self.assertIn("참고값", retrieval.score_caption())
+
+    def test_dense_only_keeps_the_plain_explanation(self):
+        absent = str(PROJECT_ROOT / "data" / "processed" / "없는파일.sqlite3")
+        with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": absent}):
+            self.assertFalse(retrieval.score_is_reference_only())
+            self.assertNotIn("참고값", retrieval.score_caption())
+
 
 class CompoundQuestionTest(unittest.TestCase):
     """팀 합의(2026-09-01): 여러 질문은 나눠 답하지 않고 하나만 물어봐 달라고 되돌려준다."""

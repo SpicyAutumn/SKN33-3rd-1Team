@@ -27,8 +27,12 @@ AUDIENCE_LEVELS = ("easy", "general", "advanced")
 AUDIENCE_LABELS = {"easy": "쉽게 설명", "general": "일반 설명", "advanced": "깊이 있게"}
 DEFAULT_AUDIENCE_LEVEL = "general"
 
+# 화면에 적는 점수 이름. 임베딩 코사인 유사도이지 최종 순위 점수가 아니다.
+SCORE_NAME = "의미 유사도"
+
+
 def format_score(score: Any) -> str:
-    """유사도 표기. 잰 적이 없으면 `—`.
+    """의미 유사도 표기. 잰 적이 없으면 `—`.
 
     낱말 검색으로만 올라온 조각은 유사도를 계산하지 않았다.
     없는 숫자를 0으로 적으면 가장 안 비슷한 것처럼 보이므로 비워 둔다.
@@ -36,6 +40,26 @@ def format_score(score: Any) -> str:
     if not isinstance(score, (int, float)) or isinstance(score, bool):
         return "—"
     return f"{score:.3f}"
+
+
+def score_is_reference_only() -> bool:
+    """화면 숫자가 순위를 설명하지 못하는 상태인지.
+
+    하이브리드는 의미와 낱말 일치를 합쳐 순위를 정하는데 화면에 적는 숫자는
+    의미 유사도뿐이다. 그래서 1위 숫자가 2·3위보다 낮게 보일 수 있다.
+    숫자 옆에 그 사실을 붙이지 않으면 순위가 잘못된 것처럼 읽힌다.
+    """
+    return retrieval_mode() == "hybrid"
+
+
+def score_caption() -> str:
+    """점수 옆에 붙이는 설명 한 줄."""
+    if score_is_reference_only():
+        return (
+            f"{SCORE_NAME}는 뜻이 얼마나 가까운지만 나타내는 **참고값**입니다. "
+            "순위는 여기에 낱말 일치까지 더해 정하므로 숫자 순서와 다를 수 있습니다."
+        )
+    return f"{SCORE_NAME}가 높을수록 질문과 뜻이 가깝습니다. 순위는 이 값 순서입니다."
 
 
 RETRIEVAL_LABELS = {

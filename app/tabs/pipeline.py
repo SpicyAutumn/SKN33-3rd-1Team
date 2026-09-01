@@ -83,7 +83,7 @@ def _render_flow(result, response, contexts, used_ids, scores, documents) -> Non
     score_range = (
         f"{retrieval.format_score(max(scores))} ~ {retrieval.format_score(min(scores))}"
         if scores
-        else "유사도 없음"
+        else "측정값 없음"
     )
     mode = retrieval.retrieval_mode()
     if mode == "hybrid":
@@ -118,7 +118,9 @@ def _render_flow(result, response, contexts, used_ids, scores, documents) -> Non
         _stage(
             2,
             "‘공식 자료를 검색하고 있습니다…’",
-            f"{search_detail}<br><span class='process-note'>유사도 {score_range}</span>",
+            f"{search_detail}<br><span class='process-note'>{retrieval.SCORE_NAME} {score_range}"
+            + ("  (참고값 · 순위와 순서가 다를 수 있습니다)" if retrieval.score_is_reference_only() else "")
+            + "</span>",
         ),
         _stage(
             3,

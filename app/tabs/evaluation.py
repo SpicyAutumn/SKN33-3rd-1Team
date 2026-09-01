@@ -88,14 +88,15 @@ def _render_retrieval_quality(contexts: list[dict], used: set[str]) -> None:
     # 하이브리드는 낱말 일치도 함께 보므로 순위와 유사도 순서가 어긋날 수 있다.
     # `1·2위 격차` 같은 표기는 그 전제가 깨지면 음수가 되어 뜻이 통하지 않는다.
     columns[3].metric(
-        "유사도 범위",
+        f"{retrieval.SCORE_NAME} 범위",
         f"{max(scores):.3f}" if scores else "—",
         delta=f"최저 {min(scores):.3f}" if len(scores) >= 2 else None,
         delta_color="off",
-        help="검색된 조각의 유사도입니다. 순위는 낱말 일치도 함께 보고 정하므로 유사도 순서와 다를 수 있습니다.",
+        help=retrieval.score_caption().replace("**", ""),
     )
 
-    st.markdown("##### 유사도 분포")
+    st.markdown(f"##### {retrieval.SCORE_NAME} 분포")
+    st.caption(retrieval.score_caption())
     _render_score_bars(contexts, used)
 
     for note in _observations(contexts, documents, scores):
@@ -147,18 +148,19 @@ def _observations(contexts: list[dict], documents: set[str], scores: list[float]
         spread = max(scores) - min(scores)
         if spread < 0.05:
             notes.append(
-                f"조각 {len(scores)}건의 유사도 차이가 {spread:.3f}뿐이라 "
-                "유사도만으로는 순위를 가리기 어렵습니다."
+                f"조각 {len(scores)}건의 {retrieval.SCORE_NAME} 차이가 {spread:.3f}뿐이라 "
+                "이 값만으로는 순위를 가리기 어렵습니다."
             )
     ranked = [s for s in (_score(c) for c in contexts) if s is not None]
     if len(ranked) >= 2 and ranked != sorted(ranked, reverse=True):
         notes.append(
-            "순위가 유사도 순서와 다릅니다. 낱말 일치를 함께 보고 순위를 정했다는 뜻입니다."
+            f"이번 결과는 순위가 {retrieval.SCORE_NAME} 순서와 다릅니다. "
+            "낱말 일치를 함께 보고 순위를 정했다는 뜻이며, 순위가 잘못된 것이 아닙니다."
         )
     missing = len(contexts) - len(scores)
     if missing:
         notes.append(
-            f"{missing}건은 낱말 검색으로만 올라와 유사도를 재지 않았습니다."
+            f"{missing}건은 낱말 검색으로만 올라와 {retrieval.SCORE_NAME}를 재지 않았습니다."
         )
     return notes
 

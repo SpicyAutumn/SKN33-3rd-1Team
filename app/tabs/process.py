@@ -24,6 +24,7 @@ def render() -> None:
 
     with st.container(border=True):
         st.markdown("**2. 검색된 공식 자료 청크**")
+        st.caption(retrieval.score_caption())
         if not contexts:
             st.write("이번 응답에는 답변에 사용할 수 있는 검색 청크가 없습니다.")
         for index, context in enumerate(contexts, start=1):
@@ -31,7 +32,9 @@ def render() -> None:
             score = context.get("retrieval_score")
             used = context.get("chunk_id") in used_chunk_ids
             label = "✅ 답변에 사용됨" if used else "검색 결과"
-            score_text = f" · 유사도 {retrieval.format_score(score)}" if score is not None else ""
+            score_text = (
+                f" · {retrieval.SCORE_NAME} {retrieval.format_score(score)}" if score is not None else ""
+            )
             with st.expander(f"{rank}위 · {context.get('title', '제목 없음')}{score_text} · {label}", expanded=used):
                 st.write(context.get("content", "본문 없음"))
                 st.caption(f"section: {context.get('section', '없음')} · chunk_id: {context.get('chunk_id', '없음')}")

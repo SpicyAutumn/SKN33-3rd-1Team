@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+from functools import lru_cache
 from typing import Any
 
 import rag_client
+from rag_service import RagService
 from rag_client import (  # noqa: F401 - 화면에서 그대로 사용한다
     bm25_index_chunk_count,
     bm25_index_path,
@@ -24,6 +27,35 @@ SOURCE_NAME = "한국민족문화대백과사전"
 AUDIENCE_LEVELS = ("easy", "general", "advanced")
 AUDIENCE_LABELS = {"easy": "쉽게 설명", "general": "일반 설명", "advanced": "깊이 있게"}
 DEFAULT_AUDIENCE_LEVEL = "general"
+
+
+class _FixedContextsRetriever:
+    """같은 질문의 설명 수준만 바꿀 때 앞서 검색한 문맥을 재사용한다."""
+
+    def __init__(self, contexts: list[dict[str, Any]]) -> None:
+        self.contexts = deepcopy(contexts)
+
+    def search(self, question: str, *, top_k: int = 3) -> list[dict[str, Any]]:
+        del question
+        return deepcopy(self.contexts[:top_k])
+
+
+@lru_cache(maxsize=1)
+def get_service() -> RagService:
+    """Streamlit 재실행 사이에도 Pinecone·BM25·Qwen 연결 객체를 재사용한다."""
+    return rag_client.build_service()
+
+
+def _service_with_contexts(service: RagService, contexts: list[dict[str, Any]]) -> RagService:
+    """검색기만 고정 문맥으로 바꾸고 나머지 서비스 구성은 그대로 재사용한다."""
+    return RagService(
+        retriever=_FixedContextsRetriever(contexts),
+        generator=service.generator,
+        evidence_checker=service.evidence_checker,
+        scope_checker=service.scope_checker,
+        config=service.config,
+    )
+
 
 def format_score(score: Any) -> str:
     """유사도 표기. 잰 적이 없으면 `—`.
@@ -59,13 +91,16 @@ def answer(
     audience_level: str = DEFAULT_AUDIENCE_LEVEL,
     interaction_id: str | None = None,
     clarification_context: dict[str, Any] | None = None,
+    retrieved_contexts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """RagService를 호출해 응답과 실행 추적을 함께 돌려준다.
 
     반환 형식은 `RagService.answer_with_trace()` 그대로다.
       {response, retrieved_contexts, used_chunk_ids, retrieval_top_k}
     """
-    service = rag_client.build_service()
+    service = get_service()
+    if retrieved_contexts is not None:
+        service = _service_with_contexts(service, retrieved_contexts)
     return service.answer_with_trace(
         question,
         audience_level=audience_level,

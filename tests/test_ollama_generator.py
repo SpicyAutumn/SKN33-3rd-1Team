@@ -75,6 +75,7 @@ class OllamaGeneratorTest(unittest.TestCase):
         self.assertEqual(captured["url"], "https://pod.example/api/chat")
         self.assertFalse(captured["payload"]["think"])
         self.assertFalse(captured["payload"]["stream"])
+        self.assertEqual(captured["payload"]["keep_alive"], "1h")
         self.assertEqual(
             captured["payload"]["format"]["properties"]["candidate_response_type"]["enum"][0],
             "answered",
@@ -88,6 +89,34 @@ class OllamaGeneratorTest(unittest.TestCase):
         self.assertEqual(result["used_chunk_ids"], [CONTEXT["chunk_id"]])
         self.assertEqual(result["generation_metadata"]["model_id"], "qwen3:8b")
         self.assertEqual(result["generation_metadata"]["token_usage"]["total_tokens"], 150)
+
+    def test_keep_alive_can_be_overridden(self) -> None:
+        captured: dict = {}
+
+        def transport(url: str, payload: dict, timeout: float) -> dict:
+            captured.update(payload=payload)
+            return {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "candidate_response_type": "answered",
+                            "draft_message": "근거 기반 답변",
+                            "used_chunk_ids": [CONTEXT["chunk_id"]],
+                            "clarification": None,
+                            "premise_correction": None,
+                            "related_topic_candidates": [],
+                        },
+                        ensure_ascii=False,
+                    )
+                }
+            }
+
+        OllamaGenerator(
+            base_url="https://pod.example",
+            keep_alive="30m",
+            transport=transport,
+        ).invoke(generation_request())
+        self.assertEqual(captured["payload"]["keep_alive"], "30m")
 
     def test_rejects_output_with_contract_fields_missing(self) -> None:
         def transport(url: str, payload: dict, timeout: float) -> dict:

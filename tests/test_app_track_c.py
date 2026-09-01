@@ -20,6 +20,7 @@ import rag_client  # noqa: E402
 import regions  # noqa: E402
 import retrieval  # noqa: E402
 from components.citations import group_by_document  # noqa: E402
+from tabs.chat import _reusable_contexts  # noqa: E402
 from tabs.explore import _build_payload  # noqa: E402
 
 
@@ -316,6 +317,39 @@ class ScoreDisplayTest(unittest.TestCase):
 
     def test_unmeasured_similarity_is_blank_not_zero(self):
         self.assertEqual(retrieval.format_score(None), "—")
+
+
+class RetrievalReuseTest(unittest.TestCase):
+    def tearDown(self):
+        retrieval.get_service.cache_clear()
+
+    def test_service_is_built_only_once(self):
+        service = object()
+        with mock.patch.object(retrieval.rag_client, "build_service", return_value=service) as build:
+            self.assertIs(retrieval.get_service(), service)
+            self.assertIs(retrieval.get_service(), service)
+        build.assert_called_once_with()
+
+    def test_fixed_context_retriever_skips_search_and_returns_a_copy(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="경복궁")]
+        retriever = retrieval._FixedContextsRetriever(contexts)
+
+        first = retriever.search("경복궁을 쉽게 설명해줘", top_k=3)
+        first[0]["title"] = "변경됨"
+        second = retriever.search("경복궁을 자세히 설명해줘", top_k=3)
+
+        self.assertEqual(second[0]["title"], "경복궁")
+        self.assertIsNot(first, second)
+
+    def test_same_question_reuses_nonempty_contexts(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="경복궁")]
+        last_result = {"question": "경복궁이 뭐야?", "retrieved_contexts": contexts}
+        self.assertIs(_reusable_contexts(last_result, "경복궁이 뭐야?"), contexts)
+
+    def test_different_question_or_empty_result_runs_a_new_search(self):
+        last_result = {"question": "경복궁이 뭐야?", "retrieved_contexts": []}
+        self.assertIsNone(_reusable_contexts(last_result, "창덕궁이 뭐야?"))
+        self.assertIsNone(_reusable_contexts(last_result, "경복궁이 뭐야?"))
 
 
 class CompoundQuestionTest(unittest.TestCase):

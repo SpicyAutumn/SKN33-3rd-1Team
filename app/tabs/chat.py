@@ -84,9 +84,25 @@ def render() -> None:
     citations.render(response.get("citations", []))
 
 
-def _run(question: str, audience_level: str, *, live: bool) -> None:
+def _run(
+    question: str,
+    audience_level: str,
+    *,
+    live: bool,
+    retrieved_contexts: list[dict] | None = None,
+) -> None:
     """질문을 처리해 결과를 세션에 저장한다."""
-    execution = _fetch(question, audience_level, live=live)
+    if live and retrieved_contexts is None:
+        retrieved_contexts = _reusable_contexts(
+            st.session_state.get("last_result"),
+            question,
+        )
+    execution = _fetch(
+        question,
+        audience_level,
+        live=live,
+        retrieved_contexts=retrieved_contexts,
+    )
     if execution is None:
         return
     response = execution["response"]
@@ -114,6 +130,14 @@ def _run(question: str, audience_level: str, *, live: bool) -> None:
     st.session_state["question_history"] = history[-10:]
 
 
+def _reusable_contexts(last_result: dict | None, question: str) -> list[dict] | None:
+    """같은 질문의 정상 검색 결과만 설명 수준 변경에 재사용한다."""
+    if not last_result or last_result.get("question") != question:
+        return None
+    contexts = last_result.get("retrieved_contexts")
+    return contexts if isinstance(contexts, list) and contexts else None
+
+
 def _render_level_switch(result: dict, *, live: bool) -> None:
     """답변 뒤에 설명 수준만 한 단계씩 바꾸는 버튼."""
     current = result.get("audience_level", retrieval.DEFAULT_AUDIENCE_LEVEL)
@@ -130,7 +154,7 @@ def _render_level_switch(result: dict, *, live: bool) -> None:
             disabled=current == retrieval.AUDIENCE_LEVELS[0],
             key="level-easier",
         ):
-            _request_level(question, retrieval.shift_level(current, -1), live=live)
+            _request_level(result, retrieval.shift_level(current, -1), live=live)
     with deeper:
         if st.button(
             "🔎 더 자세히 설명",
@@ -138,19 +162,31 @@ def _render_level_switch(result: dict, *, live: bool) -> None:
             disabled=current == retrieval.AUDIENCE_LEVELS[-1],
             key="level-deeper",
         ):
-            _request_level(question, retrieval.shift_level(current, 1), live=live)
+            _request_level(result, retrieval.shift_level(current, 1), live=live)
 
 
-def _request_level(question: str, level: str, *, live: bool) -> None:
+def _request_level(result: dict, level: str, *, live: bool) -> None:
     """같은 질문을 다른 설명 수준으로 다시 묻는다."""
+    question = result.get("question", "")
     # 선택 위젯은 다음 실행에서 갱신되므로 pending 값으로 넘긴다.
     st.session_state["pending_question"] = question
     st.session_state["pending_audience_level"] = level
-    _run(question, level, live=live)
+    _run(
+        question,
+        level,
+        live=live,
+        retrieved_contexts=result.get("retrieved_contexts") if live else None,
+    )
     st.rerun()
 
 
-def _fetch(question: str, audience_level: str, *, live: bool) -> dict | None:
+def _fetch(
+    question: str,
+    audience_level: str,
+    *,
+    live: bool,
+    retrieved_contexts: list[dict] | None = None,
+) -> dict | None:
     """RagService를 호출한다. 키가 없으면 Mock 응답을 같은 형식으로 감싸 돌려준다."""
     if live:
         with st.spinner("공식 자료를 검색하고 있습니다…"):
@@ -160,6 +196,7 @@ def _fetch(question: str, audience_level: str, *, live: bool) -> dict | None:
                     audience_level=audience_level,
                     interaction_id=st.session_state.pop("interaction_id", None),
                     clarification_context=st.session_state.pop("clarification_context", None),
+                    retrieved_contexts=retrieved_contexts,
                 )
             except Exception:  # noqa: BLE001
                 # 내부 오류 원문은 화면에 노출하지 않고 서버 로그로만 남긴다.

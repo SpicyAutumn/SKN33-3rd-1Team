@@ -154,6 +154,7 @@ class OllamaGenerator:
         model: str | None = None,
         timeout_seconds: float = 120.0,
         temperature: float = 0.0,
+        keep_alive: str | None = None,
         transport: Transport | None = None,
     ) -> None:
         self.base_url = (base_url or os.getenv("OLLAMA_BASE_URL", "")).strip().rstrip("/")
@@ -164,6 +165,7 @@ class OllamaGenerator:
             raise ValueError("OLLAMA_MODEL is required")
         self.timeout_seconds = timeout_seconds
         self.temperature = temperature
+        self.keep_alive = (keep_alive or os.getenv("OLLAMA_KEEP_ALIVE", "1h")).strip() or "1h"
         self.transport = transport or self._post_json
 
     def invoke(self, generation_request: dict[str, Any]) -> dict[str, Any]:
@@ -177,7 +179,7 @@ class OllamaGenerator:
             "stream": False,
             "think": False,
             "format": OLLAMA_OUTPUT_SCHEMA,
-            "keep_alive": "10m",
+            "keep_alive": self.keep_alive,
             "options": {
                 "temperature": self.temperature,
                 "num_predict": {"easy": 384, "general": 640, "advanced": 1024}.get(

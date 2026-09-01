@@ -7,8 +7,11 @@ import streamlit as st
 import retrieval
 
 
-# 답변 품질 지표는 LLM 심사가 있어야 계산할 수 있다. 지금은 점수를 만들지 않고
-# 무엇을 재는 지표인지와 낮을 때 볼 곳만 안내한다.
+# 답변 품질 지표. RAGAS 네 지표 가운데 답변 층 둘만 둔다.
+#
+# `context_precision`·`context_recall`은 검색 층 지표이고 계산에 정답 라벨이
+# 필요하다. 임의 질문에는 정답 라벨이 없어 늘 `평가 불가`로만 남는다. 값이
+# 나오지 않는 카드를 세워 두면 화면이 고장 난 것처럼 보인다. (PR #28)
 ANSWER_METRICS = {
     "faithfulness": {
         "title": "Faithfulness",
@@ -21,18 +24,6 @@ ANSWER_METRICS = {
         "short": "답변이 질문에 관련 있는가",
         "definition": "최종 답변이 사용자가 던진 질문에 직접 답하는지 확인합니다.",
         "improvement": "점수가 낮으면 질문과 무관한 배경 설명을 줄이고, 질문의 핵심부터 답합니다.",
-    },
-    "context_precision": {
-        "title": "Context Precision",
-        "short": "상위 검색 청크가 적절한가",
-        "definition": "상위에 검색된 청크가 질문과 관련 있고, 중요한 근거가 앞순위에 있는지 확인합니다.",
-        "improvement": "점수가 낮으면 top_k, 메타데이터 필터, 재정렬 방식을 조정합니다.",
-    },
-    "context_recall": {
-        "title": "Context Recall",
-        "short": "필요한 근거를 충분히 찾았는가",
-        "definition": "정답에 필요한 정보가 검색된 청크 안에 충분히 포함되어 있는지 확인합니다.",
-        "improvement": "점수가 낮으면 검색 범위를 넓히거나 청킹 방식과 임베딩 입력을 점검합니다.",
     },
 }
 
@@ -168,11 +159,12 @@ def _observations(contexts: list[dict], documents: set[str], scores: list[float]
 def _render_answer_quality() -> None:
     st.markdown("#### 답변 품질")
     st.caption(
-        "RAGAS 기준 네 가지입니다. LLM 심사가 연결되지 않아 아직 점수를 계산하지 않습니다. "
-        "값을 지어내지 않고 미연결 상태로 둡니다."
+        "RAGAS 답변 층 지표 두 가지입니다. 검색 층 지표(Context Precision·Recall)는 "
+        "계산에 정답 라벨이 필요해 임의 질문에서는 잴 수 없습니다. "
+        "LLM 심사가 연결되지 않아 아직 점수를 계산하지 않습니다. 값을 지어내지 않습니다."
     )
 
-    columns = st.columns(4)
+    columns = st.columns(len(ANSWER_METRICS))
     for column, detail in zip(columns, ANSWER_METRICS.values(), strict=True):
         column.metric(detail["title"], "—", help=detail["short"])
 

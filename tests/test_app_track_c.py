@@ -22,6 +22,7 @@ import retrieval  # noqa: E402
 from components.citations import group_by_document  # noqa: E402
 from tabs.chat import _reusable_contexts  # noqa: E402
 import heritage_graph  # noqa: E402
+from tabs.evaluation import ANSWER_METRICS  # noqa: E402
 
 
 def context(
@@ -583,6 +584,23 @@ class ScopeCheckerTest(unittest.TestCase):
     def test_empty_question_is_not_blocked_here(self):
         """빈 질문은 RagService가 먼저 거른다. 범위 판정이 대신 막지 않는다."""
         self.assertTrue(self.checker.is_in_scope(""))
+
+class AnswerMetricsTest(unittest.TestCase):
+    """평가 탭에는 답변 층 지표만 둔다 (PR #28)."""
+
+    def test_only_answer_layer_metrics_are_shown(self):
+        self.assertEqual(list(ANSWER_METRICS), ["faithfulness", "answer_relevancy"])
+
+    def test_retrieval_layer_metrics_are_not_shown(self):
+        """정답 라벨이 있어야 계산되는 지표다. 임의 질문에서는 늘 평가 불가로 남는다."""
+        self.assertNotIn("context_precision", ANSWER_METRICS)
+        self.assertNotIn("context_recall", ANSWER_METRICS)
+
+    def test_each_metric_explains_itself(self):
+        for name, detail in ANSWER_METRICS.items():
+            with self.subTest(metric=name):
+                self.assertEqual(set(detail), {"title", "short", "definition", "improvement"})
+                self.assertTrue(all(str(v).strip() for v in detail.values()))
 
 if __name__ == "__main__":
     unittest.main()

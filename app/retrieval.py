@@ -1,0 +1,109 @@
+"""화면과 RAG Service 사이의 얇은 연결 계층.
+
+검색·근거판정·생성·Citation 조립은 `src/rag_service`의 RagService가 맡는다.
+이 모듈은 설명 수준 상수와 실행 모드 판별, 그리고 호출 결과 전달만 담당한다.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from functools import lru_cache
+from typing import Any
+
+import rag_client
+from rag_service import RagService
+from rag_client import (  # noqa: F401 - 화면에서 그대로 사용한다
+    bm25_index_chunk_count,
+    bm25_index_path,
+    is_live,
+    missing_env,
+    retrieval_mode,
+)
+
+REQUIRED_ENV = rag_client.REQUIRED_ENV
+SOURCE_NAME = "한국민족문화대백과사전"
+
+# 계약 0.3.0-draft: 내부 코드는 easy/general/advanced, UI 문구는 쉽게/일반/깊이 있게.
+AUDIENCE_LEVELS = ("easy", "general", "advanced")
+AUDIENCE_LABELS = {"easy": "쉽게 설명", "general": "일반 설명", "advanced": "깊이 있게"}
+DEFAULT_AUDIENCE_LEVEL = "general"
+
+
+class _FixedContextsRetriever:
+    """같은 질문의 설명 수준만 바꿀 때 앞서 검색한 문맥을 재사용한다."""
+
+    def __init__(self, contexts: list[dict[str, Any]]) -> None:
+        self.contexts = deepcopy(contexts)
+
+    def search(self, question: str, *, top_k: int = 3) -> list[dict[str, Any]]:
+        del question
+        return deepcopy(self.contexts[:top_k])
+
+
+@lru_cache(maxsize=1)
+def get_service() -> RagService:
+    """Streamlit 재실행 사이에도 Pinecone·BM25·Qwen 연결 객체를 재사용한다."""
+    return rag_client.build_service()
+
+
+def _service_with_contexts(service: RagService, contexts: list[dict[str, Any]]) -> RagService:
+    """검색기만 고정 문맥으로 바꾸고 나머지 서비스 구성은 그대로 재사용한다."""
+    return RagService(
+        retriever=_FixedContextsRetriever(contexts),
+        generator=service.generator,
+        evidence_checker=service.evidence_checker,
+        scope_checker=service.scope_checker,
+        config=service.config,
+    )
+
+
+def format_score(score: Any) -> str:
+    """유사도 표기. 잰 적이 없으면 `—`.
+
+    낱말 검색으로만 올라온 조각은 유사도를 계산하지 않았다.
+    없는 숫자를 0으로 적으면 가장 안 비슷한 것처럼 보이므로 비워 둔다.
+    """
+    if not isinstance(score, (int, float)) or isinstance(score, bool):
+        return "—"
+    return f"{score:.3f}"
+
+
+RETRIEVAL_LABELS = {
+    "hybrid": "하이브리드 검색 (의미 + 단어)",
+    "dense": "의미 검색 단독",
+}
+
+
+def retrieval_label() -> str:
+    """이번 실행의 검색 방식 표기."""
+    return RETRIEVAL_LABELS.get(retrieval_mode(), "알 수 없음")
+
+
+def shift_level(level: str, step: int) -> str:
+    """설명 수준을 한 단계 옮긴다. 양 끝에서는 그대로 둔다."""
+    index = AUDIENCE_LEVELS.index(level) if level in AUDIENCE_LEVELS else 1
+    return AUDIENCE_LEVELS[min(max(index + step, 0), len(AUDIENCE_LEVELS) - 1)]
+
+
+def answer(
+    question: str,
+    *,
+    audience_level: str = DEFAULT_AUDIENCE_LEVEL,
+    interaction_id: str | None = None,
+    clarification_context: dict[str, Any] | None = None,
+    retrieved_contexts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """RagService를 호출해 응답과 실행 추적을 함께 돌려준다.
+
+    반환 형식은 `RagService.answer_with_trace()` 그대로다.
+      {response, retrieved_contexts, used_chunk_ids, retrieval_top_k}
+    """
+    service = get_service()
+    if retrieved_contexts is not None:
+        service = _service_with_contexts(service, retrieved_contexts)
+    return service.answer_with_trace(
+        question,
+        audience_level=audience_level,
+        interaction_id=interaction_id,
+        clarification_context=clarification_context,
+    )

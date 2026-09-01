@@ -1,0 +1,10 @@
+# 문화유산 주제에 맞춘 밝은 테마. 청자 계열 녹색을 강조색으로 사용합니다.
+[theme]
+base = "light"
+primaryColor = "#1F5F4E"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

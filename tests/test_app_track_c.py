@@ -336,5 +336,64 @@ class RetrievalModeTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": override}):
             self.assertEqual(rag_client.bm25_index_path(), Path(override))
 
+class CompoundQuestionTest(unittest.TestCase):
+    """팀 합의(2026-09-01): 여러 질문은 나눠 답하지 않고 하나만 물어봐 달라고 되돌려준다."""
+
+    SINGLE = [
+        "경복궁에 대해 알려줘",
+        "석굴암 본존불의 특징은?",
+        "창덕궁과 덕수궁은 같은 궁궐이야?",
+        "경주 불국사, 석굴암에 대해 알려줘",
+    ]
+    COMPOUND = [
+        "경복궁이 뭐야? 창덕궁은 언제 지어졌어?",
+        "경복궁의 건립 시기, 만든 사람, 주요 건물, 역사적 사건, 현재 위치를 알려줘",
+    ]
+
+    def test_single_questions_are_not_blocked(self):
+        """멀쩡한 질문을 막는 쪽이 답을 못 주는 것보다 나쁘다."""
+        for question in self.SINGLE:
+            with self.subTest(question=question):
+                self.assertFalse(rag_client.is_compound(question))
+
+    def test_compound_questions_are_detected(self):
+        for question in self.COMPOUND:
+            with self.subTest(question=question):
+                self.assertTrue(rag_client.is_compound(question))
+
+    def test_separate_questions_become_options(self):
+        parts = rag_client.split_questions("경복궁이 뭐야? 창덕궁은 언제 지어졌어?")
+        self.assertEqual(parts, ["경복궁이 뭐야?", "창덕궁은 언제 지어졌어?"])
+
+    def test_comma_list_offers_no_options(self):
+        """주어가 빠진 조각은 혼자서 질문이 못 되므로 버튼으로 만들지 않는다."""
+        question = "경복궁의 건립 시기, 만든 사람, 주요 건물, 역사적 사건, 현재 위치를 알려줘"
+        self.assertEqual(rag_client.compound_clarification(question)["options"], [])
+
+    def test_clarification_matches_contract_shape(self):
+        clarification = rag_client.compound_clarification("경복궁이 뭐야? 창덕궁은?")
+        self.assertEqual(set(clarification), {"reason_code", "question", "options"})
+        self.assertLessEqual(len(clarification["options"]), 3)
+        for option in clarification["options"]:
+            self.assertEqual(set(option), {"id", "label", "source_chunk_ids"})
+
+    def test_generator_returns_clarification_without_citing_evidence(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="A")]
+        request = GeneratorContractTest.request(contexts)
+        request["question"] = "경복궁이 뭐야? 창덕궁은 언제 지어졌어?"
+        result = rag_client.EvidencePassthroughGenerator().invoke(request)
+        self.assertEqual(result["candidate_response_type"], "needs_clarification")
+        # 계약: needs_clarification은 근거를 인용할 수 없다.
+        self.assertEqual(result["used_chunk_ids"], [])
+        self.assertIsNone(result["premise_correction"])
+        self.assertEqual(result["related_topic_candidates"], [])
+
+    def test_single_question_still_answers(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="A")]
+        request = GeneratorContractTest.request(contexts)
+        request["question"] = "경복궁에 대해 알려줘"
+        result = rag_client.EvidencePassthroughGenerator().invoke(request)
+        self.assertEqual(result["candidate_response_type"], "answered")
+
 if __name__ == "__main__":
     unittest.main()

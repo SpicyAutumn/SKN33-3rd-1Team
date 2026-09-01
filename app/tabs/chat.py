@@ -37,6 +37,7 @@ def render() -> None:
             st.caption(f"현재 비어 있는 항목: {', '.join(retrieval.missing_env())}")
 
     pending_question = st.session_state.pop("pending_question", None)
+    autorun = st.session_state.pop("pending_autorun", False)
     if pending_question:
         st.session_state["question"] = pending_question
     pending_level = st.session_state.pop("pending_audience_level", None)
@@ -68,6 +69,9 @@ def render() -> None:
             st.warning("질문을 입력해 주세요.")
         else:
             _run(question.strip(), st.session_state["audience_level"], live=live)
+    elif autorun and pending_question:
+        # 되묻기에서 질문을 고른 경우다. 고른 즉시 실행한다.
+        _run(pending_question, st.session_state["audience_level"], live=live)
 
     result = st.session_state.get("last_result")
     if not result:

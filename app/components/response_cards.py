@@ -4,6 +4,8 @@ import json
 
 import streamlit as st
 
+import rag_client
+
 
 def render(response: dict) -> None:
     response_type = response["response_type"]
@@ -24,7 +26,8 @@ def render(response: dict) -> None:
 
 def _render_clarification(response: dict) -> None:
     clarification = response.get("clarification") or {}
-    st.markdown("#### 🤔 어떤 대상을 말씀하셨나요?")
+    compound = clarification.get("reason_code") == rag_client.COMPOUND_REASON_CODE
+    st.markdown("#### 🧩 한 번에 하나씩 물어봐 주세요" if compound else "#### 🤔 어떤 대상을 말씀하셨나요?")
     st.write(clarification.get("question", response["message"]))
     _listen_button("clarification", clarification.get("question", response["message"]))
 
@@ -39,7 +42,11 @@ def _render_clarification(response: dict) -> None:
                 _select_clarification(response, clarification, option)
                 st.rerun()
 
-    typed = st.text_input("직접 입력하기", key="clarification_input", placeholder="대상을 직접 입력하세요")
+    typed = st.text_input(
+        "직접 입력하기",
+        key="clarification_input",
+        placeholder="질문을 하나만 입력하세요" if compound else "대상을 직접 입력하세요",
+    )
     if st.button("이 내용으로 다시 질문", key="clarify-typed", use_container_width=True):
         if typed.strip():
             _select_clarification(response, clarification, {"id": "typed", "label": typed.strip()})
@@ -49,9 +56,21 @@ def _render_clarification(response: dict) -> None:
 
 
 def _select_clarification(response: dict, clarification: dict, option: dict) -> None:
-    """선택 결과를 다음 요청의 ClarificationContext로 넘긴다."""
+    """선택 결과를 다음 요청으로 넘긴다.
+
+    복합 질문은 대상을 되묻는 게 아니라 **어느 질문을 할지** 고르는 것이므로,
+    고른 문장을 그대로 새 질문으로 보낸다. ClarificationContext를 실어 보내면
+    RagService가 같은 복합 질문을 다시 받아 근거 부족으로 처리한다.
+    """
     result = st.session_state.get("last_result", {})
     original = result.get("question", "")
+    label = str(option.get("label", "")).strip()
+
+    if clarification.get("reason_code") == rag_client.COMPOUND_REASON_CODE:
+        st.session_state["pending_question"] = label or original
+        st.session_state["pending_autorun"] = True
+        return
+
     st.session_state["clarification_context"] = {
         "original_question": original,
         "clarification_question": clarification.get("question", ""),

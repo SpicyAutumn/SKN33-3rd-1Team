@@ -33,7 +33,7 @@ class PineconeStoreTests(unittest.TestCase):
         self.assertEqual(_flat_metadata(chunk)["embedding_input_version"], EMBEDDING_INPUT_VERSION)
         self.assertEqual(_flat_metadata(chunk)["source"], PAYLOAD["url"])
 
-    def test_search_returns_track_b_source_and_page_contract_from_legacy_metadata(self) -> None:
+    def test_search_returns_v1_results_in_the_current_track_b_contract(self) -> None:
         class FakeIndex:
             def query(self, **_: object) -> dict[str, object]:
                 return {
@@ -48,6 +48,8 @@ class PineconeStoreTests(unittest.TestCase):
                                 "source_url": PAYLOAD["url"],
                                 "section": "definition",
                                 "era": "조선/조선 후기",
+                                "aliases": ["향원정"],
+                                "document_fingerprint": "3fa52c9018ab",
                             },
                         }
                     ]
@@ -60,11 +62,19 @@ class PineconeStoreTests(unittest.TestCase):
 
         result = retriever.search("향원정은 무엇이야?", top_k=3)
 
-        self.assertEqual(result[0]["source"], PAYLOAD["url"])
-        self.assertIsNone(result[0]["page"])
-        self.assertNotIn("source_url", result[0])
+        self.assertEqual(result[0]["source_url"], PAYLOAD["url"])
+        self.assertNotIn("source", result[0])
+        self.assertNotIn("page", result[0])
         self.assertEqual(result[0]["retrieval_rank"], 1)
-        self.assertEqual(result[0]["metadata"], {"era": "조선/조선 후기"})
+        self.assertEqual(
+            result[0]["metadata"],
+            {
+                "era": "조선/조선 후기",
+                "aliases": ["향원정"],
+                "document_fingerprint": "3fa52c9018ab",
+                "chunking_fingerprint": None,
+            },
+        )
 
     def test_search_returns_empty_list_when_pinecone_has_no_matches(self) -> None:
         class FakeIndex:
@@ -123,9 +133,10 @@ class PineconeStoreTests(unittest.TestCase):
         self.assertEqual([item["retrieval_rank"] for item in results], [1, 2])
         self.assertIsNone(results[0]["retrieval_score"])
         self.assertEqual(results[0]["score_type"], "unknown")
-        self.assertIsNone(results[0]["source"])
-        self.assertIsNone(results[0]["page"])
+        self.assertIsNone(results[0]["source_url"])
         self.assertIsNone(results[0]["section"])
+        self.assertEqual(results[0]["metadata"]["aliases"], [])
+        self.assertIsNone(results[0]["metadata"]["chunking_fingerprint"])
         self.assertEqual(results[1]["retrieval_score"], 0.5)
         self.assertEqual(results[1]["score_type"], "similarity")
         self.assertEqual(
@@ -135,8 +146,7 @@ class PineconeStoreTests(unittest.TestCase):
                 "document_id",
                 "title",
                 "content",
-                "source",
-                "page",
+                "source_url",
                 "section",
                 "retrieval_rank",
                 "retrieval_score",
@@ -144,6 +154,88 @@ class PineconeStoreTests(unittest.TestCase):
                 "metadata",
             },
         )
+
+    def test_search_normalizes_v1_blank_values_without_reindexing(self) -> None:
+        class FakeIndex:
+            def query(self, **_: object) -> dict[str, object]:
+                return {
+                    "matches": [
+                        {
+                            "id": "aks:E0008547:e8fa3ea6d4b9:definition:0001",
+                            "score": 0.663182139,
+                            "metadata": {
+                                "document_id": "aks:E0008547",
+                                "title": "길쌈노래",
+                                "content": "여성들이 길쌈을 하면서 부르는 민요.",
+                                "source": "https://encykorea.aks.ac.kr/Article/E0008547",
+                                "section": "definition",
+                                "aliases": ["길쌈노동요", "NONE", ""],
+                                "document_fingerprint": "e8fa3ea6d4b9",
+                                "secondary_type": "NONE",
+                            },
+                        }
+                    ]
+                }
+
+        retriever = object.__new__(PineconeRetriever)
+        retriever._embed = lambda _: [[0.1, 0.2]]
+        retriever._index = FakeIndex()
+        retriever.namespace = ""
+
+        result = retriever.search("길쌈노래는 무엇이야?", top_k=3)[0]
+
+        self.assertEqual(
+            set(result),
+            {
+                "chunk_id",
+                "document_id",
+                "title",
+                "content",
+                "source_url",
+                "section",
+                "retrieval_rank",
+                "retrieval_score",
+                "score_type",
+                "metadata",
+            },
+        )
+        self.assertEqual(result["source_url"], "https://encykorea.aks.ac.kr/Article/E0008547")
+        self.assertEqual(result["metadata"]["aliases"], ["길쌈노동요"])
+        self.assertIsNone(result["metadata"]["secondary_type"])
+        self.assertIsNone(result["metadata"]["chunking_fingerprint"])
+
+    def test_search_rejects_missing_required_text_instead_of_returning_string_none(self) -> None:
+        class FakeIndex:
+            def __init__(self, field_name: str, value: object) -> None:
+                self.field_name = field_name
+                self.value = value
+
+            def query(self, **_: object) -> dict[str, object]:
+                metadata: dict[str, object] = {
+                    "document_id": "aks:E0008547",
+                    "title": "길쌈노래",
+                    "content": "여성들이 길쌈을 하면서 부르는 민요.",
+                    "source": "https://encykorea.aks.ac.kr/Article/E0008547",
+                    "section": "definition",
+                }
+                metadata[self.field_name] = self.value
+                return {"matches": [{"id": "invalid-required-value", "metadata": metadata}]}
+
+        for field_name, value in (
+            ("document_id", ""),
+            ("title", "NONE"),
+            ("title", ""),
+            ("content", "NONE"),
+            ("content", ""),
+        ):
+            with self.subTest(field_name=field_name, value=value):
+                retriever = object.__new__(PineconeRetriever)
+                retriever._embed = lambda _: [[0.1, 0.2]]
+                retriever._index = FakeIndex(field_name, value)
+                retriever.namespace = ""
+
+                with self.assertRaisesRegex(ValueError, rf"metadata\.{field_name} must be a non-empty string"):
+                    retriever.search("길쌈노래는 무엇이야?", top_k=3)
 
     def test_resume_skips_only_matching_chunking_identity(self) -> None:
         chunk = build_chunks([PAYLOAD])[0]

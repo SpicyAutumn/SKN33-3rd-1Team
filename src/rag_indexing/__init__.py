@@ -7,6 +7,8 @@ from .pipeline import (
     load_aks_jsonl,
     write_chunks_jsonl,
 )
+from .bm25_store import BM25Retriever, build_bm25_index
+from .hybrid_retriever import HybridRetriever, reciprocal_rank_fusion
 
 __all__ = [
     "Chunk",
@@ -14,4 +16,8 @@ __all__ = [
     "build_chunks",
     "load_aks_jsonl",
     "write_chunks_jsonl",
+    "BM25Retriever",
+    "build_bm25_index",
+    "HybridRetriever",
+    "reciprocal_rank_fusion",
 ]

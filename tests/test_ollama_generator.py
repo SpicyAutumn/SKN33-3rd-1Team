@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from rag_service.ollama_generator import OllamaGenerator
+from rag_service.ollama_generator import SYSTEM_PROMPT, OllamaGenerator
 
 
 CONTEXT = {
@@ -81,9 +81,9 @@ class OllamaGeneratorTest(unittest.TestCase):
             "answered",
         )
         self.assertEqual(captured["payload"]["options"]["temperature"], 0.0)
-        self.assertEqual(captured["payload"]["options"]["num_predict"], 640)
+        self.assertEqual(captured["payload"]["options"]["num_predict"], 768)
         self.assertIn(CONTEXT["content"], captured["payload"]["messages"][1]["content"])
-        self.assertIn("5~8개 문장", captured["payload"]["messages"][1]["content"])
+        self.assertIn("2~3개의 짧은 문단", captured["payload"]["messages"][1]["content"])
         self.assertEqual(result["request_id"], "REQ-1")
         self.assertEqual(result["audience_level"], "general")
         self.assertEqual(result["used_chunk_ids"], [CONTEXT["chunk_id"]])
@@ -162,11 +162,12 @@ class OllamaGeneratorTest(unittest.TestCase):
         advanced_prompt = OllamaGenerator._request_prompt(advanced_request)
 
         self.assertIn("초등학생", easy_prompt)
-        self.assertIn("3~5개의 짧은 문장", easy_prompt)
+        self.assertIn("4~6개의 짧은 문장", easy_prompt)
         self.assertIn("정궁은 '왕이 주로 머물며 나라 일을 보던 중심 궁궐'", easy_prompt)
-        self.assertIn("10~16개 문장", advanced_prompt)
+        self.assertIn("3~4개의 짧은 문단", advanced_prompt)
         self.assertIn("연도·인물·제도·건물·사건", advanced_prompt)
         self.assertIn("서로 다른 인물의 행동을 합치지 않는다", advanced_prompt)
+        self.assertIn("한 덩어리 줄글로 쓰지 않는다", SYSTEM_PROMPT)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from aks_data.config import load_project_env  # noqa: E402
 from evaluation.case_loader import load_evaluation_cases  # noqa: E402
 from rag_indexing.bm25_store import BM25Retriever  # noqa: E402
-from rag_indexing.hybrid_retriever import reciprocal_rank_fusion  # noqa: E402
+from rag_indexing.hybrid_retriever_experiment import reciprocal_rank_fusion  # noqa: E402
 from rag_indexing.pinecone_store import PineconeRetriever  # noqa: E402
 
 

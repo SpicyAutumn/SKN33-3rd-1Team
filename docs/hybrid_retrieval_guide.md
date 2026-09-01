@@ -31,19 +31,12 @@ bm25_weight = 1.0
 
 `candidate_k=10`, 최종 `top_k=3`, `rrf_k=60`, `dense_weight=1.5`, `bm25_weight=1.0`은 현재 Dev 비교를 위한 **초기 기준값**이다. 서비스 확정값이 아니며, 질문 세트·문서당 청크 제한·근거 판정 기준을 팀에서 합의한 뒤 별도 실험으로 조정한다. `rrf_k=60`은 통상적인 RRF 기준값이고, `dense_weight=1.5`, `bm25_weight=1.0`은 아래 Dev 비교에서 선택했다. RRF 설정 변경은 검색 로직만 바꾸며 청킹·임베딩·Pinecone 재적재가 필요 없다.
 
-## Dev 3방식 평가 결과
+## 평가 보고서
 
-평가 대상은 PR #15 Dev의 `answered` 20건과 `corrected_premise` 5건, 총 25건이며 `top_k=3`이다. 상세 결과와 실행 조건은 [하이브리드 검색 평가 보고서](hybrid_retrieval_evaluation_report.md)에 기록한다.
+이 문서는 검색을 만들고 실행하는 방법만 안내한다. 실제 성능 수치와 해석은 아래 두 보고서에서 확인한다.
 
-문화재 이름이 질문에 직접 들어간 경우는 일반 Dev 평균과 분리한 [문화재 고유명사 회귀 테스트](named_heritage_retrieval_regression_report.md)로 확인한다.
-
-| 검색 방식 | Hit@1 | Hit@3 | MRR | 평균 시간 |
-| --- | ---: | ---: | ---: | ---: |
-| Dense 단독 | 0.76 (19/25) | 0.88 (22/25) | 0.800 | 0.492초 |
-| BM25 단독 | 0.20 (5/25) | 0.32 (8/25) | 0.260 | 0.487초 |
-| RRF 하이브리드 (1.5 : 1.0) | **0.76 (19/25)** | **0.92 (23/25)** | **0.820** | 0.979초 (전체) |
-
-현재 설정의 하이브리드는 Dense보다 정답 문서를 상위 3개 안에 한 건 더 포함했고, 1위 정확도는 같으며 MRR은 높았다. 따라서 RAG가 여러 근거 청크를 받는 `top_k=3` 검색의 현재 기준으로 사용한다. 다만 표본이 25개이므로, 화면·서비스의 확정 기본값은 Holdout과 고유명사 회귀 테스트를 확인한 뒤 결정한다. Dense 가중치·`candidate_k`·문서당 청크 제한은 별도 실험으로 조정한다.
+- [Dev 25개 전체 성능 보고서](hybrid_retrieval_evaluation_report.md): 일반 질문에서 Dense·BM25·Hybrid를 비교한다.
+- [문화재 고유명사 회귀 보고서](named_heritage_retrieval_regression_report.md): 경복궁·석굴암·종묘·향원정·백제금동대향로의 원문 1위 여부를 확인한다.
 
 평가 결과의 시간은 다음처럼 구분한다. Dense의 `mean_query_seconds`는 질문 임베딩과 Pinecone 검색을 포함한 Dense 전체 시간이다. 하이브리드의 `mean_additional_processing_seconds`는 이미 얻은 Dense 후보에 BM25 검색과 RRF 결합을 더하는 데 걸린 시간이며, `mean_total_query_seconds`는 두 시간을 합친 하이브리드 전체 시간이다. 따라서 추가 처리 시간만 하이브리드 전체 시간으로 해석하지 않는다.
 

@@ -19,7 +19,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-REQUIRED_ENV = ("OPENAI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX_NAME")
+REQUIRED_ENV = (
+    "OPENAI_API_KEY",
+    "PINECONE_API_KEY",
+    "PINECONE_INDEX_NAME",
+    "OLLAMA_BASE_URL",
+)
 
 # 로컬 BM25 인덱스. Pinecone과 달리 공용이 아니라 각자 만들어야 한다.
 DEFAULT_BM25_INDEX_PATH = PROJECT_ROOT / "data" / "processed" / "aks_bm25_v1.sqlite3"
@@ -180,6 +185,7 @@ class EvidencePassthroughGenerator:
             },
         }
 
+
     def invoke(self, request: dict[str, Any]) -> dict[str, Any]:
         contexts = request["retrieved_contexts"]
         # 복합 질문은 나눠서 답하지 않고 하나만 물어봐 달라고 되돌려준다.
@@ -213,6 +219,18 @@ class EvidencePassthroughGenerator:
                 "token_usage": None,
             },
         }
+
+
+class CompoundAwareGenerator:
+    """복합 질문 팀 규칙을 먼저 적용하고 단일 질문만 실제 생성기로 보낸다."""
+
+    def __init__(self, delegate: Any) -> None:
+        self.delegate = delegate
+
+    def invoke(self, request: dict[str, Any]) -> dict[str, Any]:
+        if request.get("clarification_context") is None and is_compound(request["question"]):
+            return EvidencePassthroughGenerator()._clarification_result(request)
+        return self.delegate.invoke(request)
 
 
 def bm25_index_path() -> Path:
@@ -311,10 +329,11 @@ def build_service():
     if absent:
         raise RuntimeError(f"환경 변수 미설정: {', '.join(absent)}")
 
+    from rag_service.ollama_generator import OllamaGenerator
     from rag_service.service import RagService
 
     return RagService(
         retriever=build_retriever(),
-        generator=EvidencePassthroughGenerator(),
+        generator=CompoundAwareGenerator(OllamaGenerator()),
         evidence_checker=ContentEvidenceChecker(),
     )

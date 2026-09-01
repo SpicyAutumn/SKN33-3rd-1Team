@@ -29,27 +29,26 @@ from typing import Any
 # 가지마다 다른 색. 청자 녹색과 단청 색조에서 가져왔다.
 BRANCH_COLORS = ("#F0CE87", "#5FC1A0", "#8FCBE0", "#E0A277", "#BFA3D8")
 
-WIDTH = 1040
+WIDTH = 1180
 HEIGHT = 900
 CENTER_X = WIDTH / 2
 CENTER_Y = HEIGHT / 2
 
-ROOT_W, ROOT_H, ROOT_R = 230, 92, 22
+ROOT_W, ROOT_H, ROOT_R = 250, 100, 24
 
 # 가운데에서 가지 이름까지. 이름이 길어 자리가 모자라면 이 값을 줄인다.
-CLUSTER_RX, CLUSTER_RY = 286, 230
+CLUSTER_RX, CLUSTER_RY = 230, 230
 TOP_CLUSTER_DY = 130    # 12시 무리는 줄이 위로 뻗으므로 가운데에 바짝 붙인다
-TOP_CLUSTER_DX = 92     # 점이 이름을 뚫지 않게 오른쪽으로 민다
+TOP_CLUSTER_DX = 0      # 점이 이름 안쪽에 붙으므로 밀지 않아도 된다
 
-PILL_W, PILL_H = 150, 38
-ROW_H = 34              # 노드 한 줄. 두 줄 이름이 들어가므로 넉넉히 둔다.
+PILL_W, PILL_H = 166, 42
+ROW_H = 38              # 노드 한 줄
 HEAD_GAP = 34           # 가지 이름에서 첫 노드까지
 DOT_GAP = 14            # 점에서 글자까지
-LINE_H = 17
 
-NODE_FONT = 19
-BRANCH_FONT = 17
-WRAP_AT = 7             # 이보다 길면 두 줄로 접는다
+NODE_FONT = 22          # 이름은 자르지도 접지도 줄이지도 않는다. 한 줄로 길게 쓴다.
+BRANCH_FONT = 19
+EDGE_MARGIN = 22        # 화면 가장자리에서 띄울 거리
 
 # 12시부터 시계방향으로 다섯 자리. 사람이 시계를 읽는 순서와 같다.
 CLUSTER_ANGLES = (-90.0, -18.0, 54.0, 126.0, 198.0)
@@ -59,27 +58,9 @@ CLUSTER_ANGLES = (-90.0, -18.0, 54.0, 126.0, 198.0)
 CLUSTER_GROWS_UP = (True, False, False, False, False)
 
 
-def wrap_label(text: str, limit: int = WRAP_AT) -> list[str]:
-    """긴 이름을 두 줄로 접는다. 자르지 않는다.
-
-    띄어쓰기가 있으면 가운데에 가장 가까운 자리에서 나눈다. 없으면 반으로
-    나눈다. `서울 문묘 및 성균관`을 한 줄로 두면 200이 넘어 화면을 벗어난다.
-    """
-    text = text.strip()
-    if len(text) <= limit:
-        return [text]
-    spaces = [i for i, ch in enumerate(text) if ch == " "]
-    if spaces:
-        middle = len(text) / 2
-        cut = min(spaces, key=lambda i: abs(i - middle))
-        return [text[:cut].strip(), text[cut + 1 :].strip()]
-    cut = math.ceil(len(text) / 2)
-    return [text[:cut], text[cut:]]
-
-
-def _label_width(lines: list[str], font: int) -> float:
-    """한글 기준 가로 폭. 한 글자가 글자 크기만큼 넓다고 본다."""
-    return max((len(line) for line in lines), default=0) * font
+def label_width(text: str, font: float = 0) -> float:
+    """이름이 차지하는 가로 폭. 한글은 한 글자가 글자 크기만큼 넓다."""
+    return len(text.strip()) * (font or NODE_FONT)
 
 
 def _shorten(text: str, limit: int) -> str:
@@ -129,7 +110,7 @@ def _defs() -> str:
 
 def _root(title: str) -> str:
     name = _shorten(title, 11)
-    size = 38 if len(name) <= 5 else (31 if len(name) <= 8 else 25)
+    size = 42 if len(name) <= 5 else (34 if len(name) <= 8 else 27)
     x = CENTER_X - ROOT_W / 2
     y = CENTER_Y - ROOT_H / 2
     return (
@@ -162,15 +143,10 @@ def _cluster_spot(angle: float) -> tuple[float, float, str]:
     return x, CENTER_Y + CLUSTER_RY * math.sin(radians), "start" if cosine > 0 else "end"
 
 
-def _node_text(x: float, y: float, anchor: str, lines: list[str]) -> str:
-    first = y if len(lines) == 1 else y - LINE_H / 2
-    spans = "".join(
-        f'<tspan x="{x:.1f}" dy="{0 if i == 0 else LINE_H}">{escape(line)}</tspan>'
-        for i, line in enumerate(lines)
-    )
+def _node_text(x: float, y: float, anchor: str, label: str, font: float) -> str:
     return (
-        f'<text class="hm-label" x="{x:.1f}" y="{first + 6:.1f}" text-anchor="{anchor}" '
-        f'font-size="{NODE_FONT}" font-weight="600">{spans}</text>'
+        f'<text class="hm-label" x="{x:.1f}" y="{y + font / 3:.1f}" text-anchor="{anchor}" '
+        f'font-size="{font:.1f}" font-weight="600">{escape(label)}</text>'
     )
 
 
@@ -212,12 +188,14 @@ def render(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
         # 노드는 가지 이름 아래로 줄지어 내린다. 점은 이름 쪽 끝에 붙인다.
         grows_up = CLUSTER_GROWS_UP[index % len(CLUSTER_GROWS_UP)]
         step = -1 if grows_up else 1
-        dot_x = cx + (PILL_W / 2 - 8) * direction if direction else cx
+        # 점은 가지 이름의 **안쪽** 끝에 붙인다. 바깥쪽에 붙이면 이름이 시작하는
+        # 자리가 그만큼 밖으로 밀려 긴 이름이 화면을 벗어난다.
+        dot_x = cx - (PILL_W / 2 - 10) * direction
         row_y = cy + step * (HEAD_GAP + ROW_H / 2)
         stem_x = cx
         for order, node in enumerate(nodes, start=1):
-            lines = wrap_label(str(node.get("title", "")))
-            text_x = dot_x + DOT_GAP * direction if direction else cx
+            label = str(node.get("title", "")).strip()
+            text_x = dot_x + DOT_GAP * direction
             hits.append(
                 {
                     "key": f"hm-hit-{index}-{order}",
@@ -236,11 +214,11 @@ def render(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
                 f'fill="url(#glow{index % len(BRANCH_COLORS)})"/>'
                 f'<circle class="hm-dot" cx="{dot_x:.1f}" cy="{row_y:.1f}" r="7" '
                 f'fill="{color}" stroke="#12352C" stroke-width="2"/>'
-                + _node_text(text_x, row_y, anchor if direction else "middle", lines)
+                + _node_text(text_x, row_y, anchor, label, NODE_FONT)
                 + "</g>"
             )
             # 두 줄짜리 이름은 아랫줄이 다음 점에 닿지 않도록 한 줄만큼 더 띄운다.
-            row_y += step * (ROW_H + (LINE_H + 6 if len(lines) > 1 else 0))
+            row_y += step * ROW_H
             delay += 0.04
 
     parts.append(_root(str((payload.get("root") or {}).get("title", ""))))

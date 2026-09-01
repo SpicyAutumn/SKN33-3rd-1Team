@@ -254,7 +254,7 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
    `top`의 백분율은 높이를 기준으로 풀리기 때문에 이 비율이 없으면 어긋난다. */
 [class*="st-key-heritage-stage"] {
   position: relative;
-  aspect-ratio: 1040 / 900;
+  aspect-ratio: 1180 / 900;
 }
 [class*="st-key-heritage-stage"] > div:first-child { position: absolute; inset: 0; }
 [class*="st-key-heritage-stage"] .hm-wrap { position: absolute; inset: 0; margin: 0; }

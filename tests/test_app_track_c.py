@@ -21,6 +21,7 @@ import regions  # noqa: E402
 import retrieval  # noqa: E402
 from components.citations import group_by_document  # noqa: E402
 from tabs.chat import _reusable_contexts  # noqa: E402
+from tabs.evaluation import _evaluate_once, _metric_display_value  # noqa: E402
 from tabs.explore import _build_payload  # noqa: E402
 
 
@@ -47,6 +48,95 @@ def context(
         "score_type": "similarity",
         "metadata": metadata or {},
     }
+
+
+class EvaluationMetricDisplayTest(unittest.TestCase):
+    def test_displays_completed_ragas_score(self):
+        result = {
+            "metrics": {
+                "faithfulness": {
+                    "score": 0.87654,
+                    "status": "completed",
+                    "message": None,
+                }
+            }
+        }
+        self.assertEqual(_metric_display_value("faithfulness", result), "0.877")
+
+    def test_displays_missing_reference_exactly(self):
+        result = {
+            "metrics": {
+                "context_recall": {
+                    "score": None,
+                    "status": "not_applicable",
+                    "message": "기준 답안 없음",
+                }
+            }
+        }
+        self.assertEqual(
+            _metric_display_value("context_recall", result),
+            "N/A · 기준 답안 없음",
+        )
+
+
+class AutomaticRagasEvaluationTest(unittest.TestCase):
+    def test_new_answer_is_evaluated_once_and_then_reuses_cache(self):
+        calls = []
+        expected = {"metrics": {"faithfulness": {"score": 1.0}}}
+
+        def evaluator(**kwargs):
+            calls.append(kwargs)
+            return expected
+
+        cache = {}
+        errors = {}
+        arguments = {
+            "cache": cache,
+            "errors": errors,
+            "cache_key": "same-input",
+            "question": "훈민정음은 누가 만들었나요?",
+            "answer": "세종이 창제했습니다.",
+            "contexts": [{"content": "세종이 훈민정음을 창제하였다."}],
+            "reference": None,
+            "evaluator": evaluator,
+        }
+
+        first, first_error = _evaluate_once(**arguments)
+        second, second_error = _evaluate_once(**arguments)
+
+        self.assertIs(first, expected)
+        self.assertIs(second, expected)
+        self.assertIsNone(first_error)
+        self.assertIsNone(second_error)
+        self.assertEqual(len(calls), 1)
+
+    def test_failed_evaluation_is_not_repeated_on_streamlit_rerun(self):
+        calls = []
+
+        def evaluator(**kwargs):
+            calls.append(kwargs)
+            raise RuntimeError("external failure")
+
+        cache = {}
+        errors = {}
+        arguments = {
+            "cache": cache,
+            "errors": errors,
+            "cache_key": "failed-input",
+            "question": "질문",
+            "answer": "답변",
+            "contexts": [],
+            "reference": None,
+            "evaluator": evaluator,
+        }
+
+        first, first_error = _evaluate_once(**arguments)
+        second, second_error = _evaluate_once(**arguments)
+
+        self.assertIsNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(first_error, second_error)
+        self.assertEqual(len(calls), 1)
 
 
 class CitationGroupingTest(unittest.TestCase):

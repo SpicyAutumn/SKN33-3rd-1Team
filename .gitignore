@@ -48,3 +48,6 @@ data/processed/*
 
 # Handoff archives are copied to the team shared location, never committed.
 data/handoff/
+
+# RAGAS 기준 답안은 로컬에서만 관리합니다.
+data/evaluation/aks_ragas_dev_reference_v1.jsonl

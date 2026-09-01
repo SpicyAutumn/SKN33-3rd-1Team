@@ -46,6 +46,8 @@ def render() -> None:
 
     with st.form("question_form"):
         question = st.text_input("질문", placeholder="예: 길쌈노래는 무엇인가요?", key="question")
+        # 입력 전체를 하나의 질문으로 검색한다. 여러 질문을 한 번에 넣으면 일부 근거가 빠진다.
+        st.caption("한 번에 하나의 문화유산이나 한 가지 내용을 질문하면 더 정확한 답변을 받을 수 있어요.")
         st.radio(
             "설명 수준",
             options=retrieval.AUDIENCE_LEVELS,

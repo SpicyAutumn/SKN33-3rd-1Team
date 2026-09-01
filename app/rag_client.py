@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -167,6 +168,29 @@ def bm25_index_path() -> Path:
 def retrieval_mode() -> str:
     """이번 실행이 쓰는 검색 방식. `hybrid` 또는 `dense`."""
     return "hybrid" if bm25_index_path().is_file() else "dense"
+
+
+def bm25_index_chunk_count() -> int | None:
+    """BM25 인덱스에 든 조각 수. 인덱스가 없거나 읽을 수 없으면 `None`.
+
+    전체 말뭉치의 일부만 넣은 인덱스로도 검색은 된다. 그러면 낱말 검색이
+    닿지 못하는 문서가 생기는데 화면에는 아무 차이가 안 보인다.
+    그래서 조각 수를 읽어 공정 견학 탭에 그대로 띄운다.
+    """
+    path = bm25_index_path()
+    if not path.is_file():
+        return None
+    try:
+        with sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True) as connection:
+            row = connection.execute(
+                "SELECT value FROM index_info WHERE key = 'chunk_count'"
+            ).fetchone()
+    except sqlite3.Error:
+        return None
+    try:
+        return int(row[0]) if row else None
+    except (TypeError, ValueError):
+        return None
 
 
 def build_retriever():

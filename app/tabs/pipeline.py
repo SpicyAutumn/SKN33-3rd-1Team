@@ -17,6 +17,7 @@ MANIFEST_PATH = PROJECT_ROOT / "data" / "manifest.csv"
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
+TOTAL_CHUNKS = 179_028
 
 
 @st.cache_data(show_spinner=False)
@@ -86,9 +87,20 @@ def _render_flow(result, response, contexts, used_ids, scores, passed, dropped, 
     score_range = f"{max(scores):.3f} ~ {min(scores):.3f}" if scores else "점수 없음"
     mode = retrieval.retrieval_mode()
     if mode == "hybrid":
+        indexed = retrieval.bm25_index_chunk_count()
+        if indexed is None:
+            coverage = "낱말 인덱스 크기 확인 불가"
+        elif indexed < TOTAL_CHUNKS:
+            # 부분 인덱스로도 검색은 된다. 닿지 못하는 문서가 있다는 걸 숨기지 않는다.
+            coverage = (
+                f"낱말 인덱스 {indexed:,}조각 — 전체 {TOTAL_CHUNKS:,}조각 중 일부만 들어 있습니다"
+            )
+        else:
+            coverage = f"낱말 인덱스 {indexed:,}조각 — 전체"
         search_detail = (
             "뜻이 가까운 조각과 <b>같은 낱말이 든 조각</b>을 따로 찾아, 두 순위를 합칩니다."
             f"<br><span class='process-note'>{retrieval.retrieval_label()} · 상위 {len(contexts)}개</span>"
+            f"<br><span class='process-note'>{coverage}</span>"
         )
     else:
         search_detail = (

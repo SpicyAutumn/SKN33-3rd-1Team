@@ -10,6 +10,7 @@ from typing import Any
 
 import rag_client
 from rag_client import (  # noqa: F401 - 화면에서 그대로 사용한다
+    bm25_index_chunk_count,
     bm25_index_path,
     is_live,
     is_threshold_comparable,
@@ -43,6 +44,18 @@ def threshold_applies(contexts: list[dict[str, Any]]) -> bool:
 def score_label(contexts: list[dict[str, Any]]) -> str:
     """점수 종류에 맞는 화면 표기. 하이브리드 검색은 유사도가 아니다."""
     return "유사도" if threshold_applies(contexts) else "관련도"
+
+
+def format_score(score: Any, contexts: list[dict[str, Any]]) -> str:
+    """점수를 척도에 맞는 자릿수로 적는다.
+
+    RRF 점수는 0.041보다 커질 수 없어 소수 둘째 자리로 적으면
+    1위와 3위가 똑같이 `0.04`로 보인다.
+    """
+    if not isinstance(score, (int, float)) or isinstance(score, bool):
+        return "—"
+    digits = 3 if threshold_applies(contexts) else 4
+    return f"{score:.{digits}f}"
 
 
 RETRIEVAL_LABELS = {

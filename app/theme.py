@@ -227,11 +227,12 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
   /* 안쪽 여백을 두면 그림이 무대 안에서 밀려 겹쳐 둔 버튼과 어긋난다. */
   padding: 0;
   border-radius: 20px;
+  /* 너무 어두우면 글자가 묻힌다. 청자빛이 남을 만큼만 내린다. */
   background:
-    radial-gradient(circle at 50% 45%, rgba(226,187,110,.10), transparent 55%),
-    radial-gradient(circle at 50% 50%, #123B31 0%, #0B221C 70%, #081A15 100%);
-  border: 1px solid rgba(226,187,110,.22);
-  box-shadow: 0 18px 46px rgba(0,0,0,.28), inset 0 0 90px rgba(0,0,0,.35);
+    radial-gradient(circle at 50% 45%, rgba(240,216,155,.13), transparent 58%),
+    radial-gradient(circle at 50% 50%, #2E6B59 0%, #235445 62%, #1B4437 100%);
+  border: 1px solid rgba(240,216,155,.3);
+  box-shadow: 0 18px 46px rgba(0,0,0,.22), inset 0 0 120px rgba(0,0,0,.18);
   overflow: hidden;
 }
 /* 은은하게 도는 빛무리 */
@@ -239,24 +240,28 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
   content: "";
   position: absolute;
   inset: -30%;
-  background: conic-gradient(from 0deg, transparent 0 78%, rgba(226,187,110,.13) 88%, transparent 100%);
+  background: conic-gradient(from 0deg, transparent 0 78%, rgba(240,216,155,.14) 88%, transparent 100%);
   animation: hm-sweep 22s linear infinite;
   pointer-events: none;
 }
-.hm-svg { position: relative; display: block; width: 100%; height: auto; }
+/* 그림을 무대에 정확히 채운다.
+   `height:100%`는 중간 컨테이너가 auto라서 0으로 풀린다. 절대 배치로 붙인다.
+   흐름에 맡기면 SVG가 상자보다 위로 튀어나와 overflow:hidden에 잘린다. */
+.hm-svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 
 /* 그림 위에 클릭 영역을 겹친다.
    무대에 그림과 같은 가로세로 비를 주면 백분율 좌표가 두 축 모두 맞는다.
    `top`의 백분율은 높이를 기준으로 풀리기 때문에 이 비율이 없으면 어긋난다. */
 [class*="st-key-heritage-stage"] {
   position: relative;
-  aspect-ratio: 1180 / 860;
+  aspect-ratio: 980 / 680;
 }
 [class*="st-key-heritage-stage"] > div:first-child { position: absolute; inset: 0; }
+[class*="st-key-heritage-stage"] .hm-wrap { position: absolute; inset: 0; margin: 0; }
 [class*="st-key-hm-hit-"] {
   position: absolute;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   transform: translate(-50%, -50%);
   z-index: 3;
 }
@@ -265,13 +270,13 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
 [class*="st-key-hm-hit-"] [data-testid="stTooltipIcon"],
 [class*="st-key-hm-hit-"] [data-testid="stTooltipHoverTarget"] {
   display: block;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
 }
 [class*="st-key-hm-hit-"] button {
-  width: 34px !important;
-  min-width: 34px !important;
-  height: 34px !important;
+  width: 44px !important;
+  min-width: 44px !important;
+  height: 44px !important;
   padding: 0 !important;
   border-radius: 50% !important;
   border: none !important;
@@ -291,9 +296,10 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
 .hm-root { animation: hm-appear .8s ease-out both; }
 .hm-pulse { transform-origin: center; animation: hm-pulse 3.4s ease-in-out infinite; }
 @keyframes hm-pulse {
-  0%, 100% { r: 76; stroke-opacity: .45; }
-  50%      { r: 92; stroke-opacity: .12; }
+  0%, 100% { stroke-opacity: .5; transform: scale(1); }
+  50%      { stroke-opacity: .12; transform: scale(1.05); }
 }
+.hm-pulse { transform-origin: center; transform-box: fill-box; }
 
 /* 줄기와 노드가 차례로 그려진다 */
 .hm-branch, .hm-node { animation: hm-appear .55s ease-out both; animation-delay: var(--d, 0s); }
@@ -310,10 +316,10 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
 
 /* 노드 */
 .hm-node { cursor: pointer; }
-.hm-label { fill: #E8E2D2; transition: fill .18s ease; }
+.hm-label { fill: #F6F2E6; transition: fill .18s ease; }
 .hm-dot { transition: r .18s ease, stroke .18s ease; }
 .hm-halo { opacity: .35; transition: opacity .22s ease; }
-.hm-node:hover .hm-dot { r: 11; stroke: #F6F1E4; }
+.hm-node:hover .hm-dot, [class*="st-key-hm-hit-"] button:hover ~ * .hm-dot { r: 14; stroke: #FBF7EC; }
 .hm-node:hover .hm-halo { opacity: 1; }
 .hm-node:hover .hm-label { fill: #FFFFFF; }
 .hm-node:hover .hm-link { stroke-opacity: .95; }

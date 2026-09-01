@@ -15,6 +15,7 @@ from rag_service import RagService
 from rag_client import (  # noqa: F401 - 화면에서 그대로 사용한다
     bm25_index_chunk_count,
     bm25_index_path,
+    generation_model,
     is_live,
     missing_env,
     retrieval_mode,
@@ -42,7 +43,7 @@ class _FixedContextsRetriever:
 
 @lru_cache(maxsize=1)
 def get_service() -> RagService:
-    """Streamlit 재실행 사이에도 Pinecone·BM25·Qwen 연결 객체를 재사용한다."""
+    """Streamlit 재실행 사이에도 Pinecone·BM25·생성 모델 연결 객체를 재사용한다."""
     return rag_client.build_service()
 
 

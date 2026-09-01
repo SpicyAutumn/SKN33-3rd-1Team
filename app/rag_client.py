@@ -321,6 +321,16 @@ def retrieval_mode() -> str:
     return "hybrid" if bm25_index_path().is_file() else "dense"
 
 
+def generation_model() -> str:
+    """답변을 만드는 모델 이름.
+
+    화면 문구에 이름을 박아 두면 모델이 바뀔 때마다 어긋난다. 실제로 Qwen에서
+    exaone으로 바뀌었을 때 화면만 옛 이름을 붙들고 있었다. `.env`에서 읽는다.
+    """
+    load_env()
+    return os.getenv("OLLAMA_MODEL", "").strip() or "미설정"
+
+
 def bm25_index_chunk_count() -> int | None:
     """BM25 인덱스에 든 조각 수. 인덱스가 없거나 읽을 수 없으면 `None`.
 

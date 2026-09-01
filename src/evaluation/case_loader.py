@@ -8,7 +8,7 @@ from typing import Any
 from .service_metrics import RESPONSE_TYPES
 
 
-SPLITS = {"dev", "holdout"}
+SPLITS = {"dev", "holdout", "regression"}
 REVIEW_STATUSES = {"draft", "approved"}
 
 

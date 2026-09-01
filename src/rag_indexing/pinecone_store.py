@@ -103,7 +103,12 @@ class PineconeRetriever:
         except ImportError as exc:
             raise RuntimeError("Install requirements.txt before using PineconeRetriever.") from exc
         self._openai = OpenAI(api_key=_require_env("OPENAI_API_KEY"))
-        self._index = Pinecone(api_key=_require_env("PINECONE_API_KEY")).Index(self.index_name)
+        client = Pinecone(api_key=_require_env("PINECONE_API_KEY"))
+        # Supplying the optional host avoids a control-plane lookup before
+        # every new process connects. It is useful on restricted networks and
+        # does not change the index or namespace being queried.
+        index_host = os.getenv("PINECONE_INDEX_HOST", "").strip()
+        self._index = client.Index(host=index_host) if index_host else client.Index(self.index_name)
 
     def _embed(self, texts: list[str], *, max_retries: int = 12) -> list[list[float]]:
         """Embed one batch, waiting for the API when its per-minute limit is reached."""

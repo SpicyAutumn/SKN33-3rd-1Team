@@ -14,6 +14,7 @@ from html import escape
 import streamlit as st
 
 import heritage_graph
+from components import heritage_map
 
 # 탐험 경로에 남길 최대 칸 수. 넘어가면 앞쪽을 접는다.
 TRAIL_LIMIT = 6
@@ -102,17 +103,45 @@ def render() -> None:
         st.warning(f"`{root_title}`의 연결 정보를 찾지 못했습니다.")
         return
 
+    branches = payload["branches"]
+    if branches:
+        _render_stage(payload)
+
     _render_root(payload["root"])
 
-    branches = payload["branches"]
     if not branches:
         st.info("이 유산과 이어지는 항목을 찾지 못했습니다. 뒤로 돌아가 다른 길로 가 보세요.")
         return
 
-    with st.container(key="heritage-map"):
+    with st.expander("목록으로 보기"):
         for index, branch in enumerate(branches):
             with st.container(key=f"heritage-branch-{index}"):
                 _render_branch(branch)
+
+
+def _render_stage(payload: dict) -> None:
+    """지도 그림과 그 위에 겹치는 클릭 영역.
+
+    SVG는 `st.html`이 걷어내므로 마크다운으로 넣는다. 클릭은 SVG가 받지 않고
+    같은 자리에 겹쳐 둔 투명한 버튼이 받는다. SVG 안에서 링크로 처리하면
+    주소가 바뀌면서 페이지가 다시 열려 세션 상태가 날아간다.
+    """
+    svg, hits = heritage_map.render(payload)
+    if not svg:
+        return
+
+    with st.container(key="heritage-stage"):
+        st.markdown(svg, unsafe_allow_html=True)
+        st.html(heritage_map.position_css(hits))
+        for hit in hits:
+            with st.container(key=hit["key"]):
+                if st.button(
+                    " ",
+                    key=f"go-{hit['key']}",
+                    help=f"{hit['title']} — {hit['reason']}",
+                ):
+                    _go(hit["document_id"], hit["title"])
+                    st.rerun()
 
 
 def _render_trail(searched) -> None:

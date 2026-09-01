@@ -219,7 +219,112 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
 }
 .map-summary { margin: 0 0 .75rem; font-size: .92rem; line-height: 1.6; opacity: .85; }
 
-/* 탐험 지도 — 선으로 이은 가지.
+/* 탐험 지도 — 방사형 별자리.
+   SVG는 마크다운으로 넣는다. st.html은 SVG를 통째로 걷어낸다. */
+.hm-wrap {
+  position: relative;
+  margin: 0;
+  /* 안쪽 여백을 두면 그림이 무대 안에서 밀려 겹쳐 둔 버튼과 어긋난다. */
+  padding: 0;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(226,187,110,.10), transparent 55%),
+    radial-gradient(circle at 50% 50%, #123B31 0%, #0B221C 70%, #081A15 100%);
+  border: 1px solid rgba(226,187,110,.22);
+  box-shadow: 0 18px 46px rgba(0,0,0,.28), inset 0 0 90px rgba(0,0,0,.35);
+  overflow: hidden;
+}
+/* 은은하게 도는 빛무리 */
+.hm-wrap::before {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  background: conic-gradient(from 0deg, transparent 0 78%, rgba(226,187,110,.13) 88%, transparent 100%);
+  animation: hm-sweep 22s linear infinite;
+  pointer-events: none;
+}
+.hm-svg { position: relative; display: block; width: 100%; height: auto; }
+
+/* 그림 위에 클릭 영역을 겹친다.
+   무대에 그림과 같은 가로세로 비를 주면 백분율 좌표가 두 축 모두 맞는다.
+   `top`의 백분율은 높이를 기준으로 풀리기 때문에 이 비율이 없으면 어긋난다. */
+[class*="st-key-heritage-stage"] {
+  position: relative;
+  aspect-ratio: 1180 / 860;
+}
+[class*="st-key-heritage-stage"] > div:first-child { position: absolute; inset: 0; }
+[class*="st-key-hm-hit-"] {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+}
+/* 버튼은 보이지 않게 두고 자리만 차지한다. 그림이 이미 점을 그리고 있다.
+   `help`를 주면 버튼이 툴팁 span 두 겹에 싸이므로 자식 선택자로는 잡히지 않는다. */
+[class*="st-key-hm-hit-"] [data-testid="stTooltipIcon"],
+[class*="st-key-hm-hit-"] [data-testid="stTooltipHoverTarget"] {
+  display: block;
+  width: 34px;
+  height: 34px;
+}
+[class*="st-key-hm-hit-"] button {
+  width: 34px !important;
+  min-width: 34px !important;
+  height: 34px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  border: none !important;
+  background: transparent !important;
+  color: transparent !important;
+  box-shadow: none !important;
+}
+[class*="st-key-hm-hit-"] button:hover,
+[class*="st-key-hm-hit-"] button:focus-visible {
+  background: rgba(246, 241, 228, .16) !important;
+  box-shadow: 0 0 0 2px rgba(226, 187, 110, .6) !important;
+}
+
+@keyframes hm-sweep { to { transform: rotate(360deg); } }
+
+/* 가운데 유산 */
+.hm-root { animation: hm-appear .8s ease-out both; }
+.hm-pulse { transform-origin: center; animation: hm-pulse 3.4s ease-in-out infinite; }
+@keyframes hm-pulse {
+  0%, 100% { r: 76; stroke-opacity: .45; }
+  50%      { r: 92; stroke-opacity: .12; }
+}
+
+/* 줄기와 노드가 차례로 그려진다 */
+.hm-branch, .hm-node { animation: hm-appear .55s ease-out both; animation-delay: var(--d, 0s); }
+@keyframes hm-appear { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+.hm-branch, .hm-node { transform-origin: 50% 50%; transform-box: fill-box; }
+
+.hm-stem, .hm-link {
+  stroke-dasharray: 620;
+  stroke-dashoffset: 620;
+  animation: hm-draw 1.1s ease-out both;
+  animation-delay: var(--d, 0s);
+}
+@keyframes hm-draw { to { stroke-dashoffset: 0; } }
+
+/* 노드 */
+.hm-node { cursor: pointer; }
+.hm-label { fill: #E8E2D2; transition: fill .18s ease; }
+.hm-dot { transition: r .18s ease, stroke .18s ease; }
+.hm-halo { opacity: .35; transition: opacity .22s ease; }
+.hm-node:hover .hm-dot { r: 11; stroke: #F6F1E4; }
+.hm-node:hover .hm-halo { opacity: 1; }
+.hm-node:hover .hm-label { fill: #FFFFFF; }
+.hm-node:hover .hm-link { stroke-opacity: .95; }
+.hm-node:focus-visible .hm-dot { r: 11; stroke: #F6F1E4; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-wrap::before, .hm-pulse { animation: none; }
+  .hm-branch, .hm-node, .hm-stem, .hm-link { animation-duration: .01s; }
+}
+
+/* 목록 보기 — 선으로 이은 가지.
    그림은 CSS로 그리고 노드는 진짜 Streamlit 버튼으로 둔다. iframe 안에 그리면
    눌러도 재탐색 신호를 보낼 수 없다. */
 [class*="st-key-heritage-branch-"] {

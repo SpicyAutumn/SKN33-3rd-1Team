@@ -214,6 +214,7 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
   text-transform: uppercase;
   opacity: .6;
 }
+.map-summary { margin: 0 0 .75rem; font-size: .92rem; line-height: 1.6; opacity: .85; }
 .map-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
 .map-chip {
   padding: .22rem .6rem;

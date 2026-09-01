@@ -29,6 +29,33 @@ MANIFEST_PATH = PROJECT_ROOT / "data" / "manifest.csv"
 # 한 축에 보여 줄 최대 개수. 너무 많으면 로드맵이 아니라 목록이 된다.
 AXIS_LIMIT = 5
 
+# 추천 대상은 문화유산이어야 한다. 찾아가 보거나, 보거나, 읽을 수 있는 것.
+#
+# 이 기준이 없으면 `궁궐`처럼 뿌리가 개념인 경우에 축이 전부 개념끼리 이어져
+# `영`·`장`·`서`·`주` 같은 한문학 용어가 추천으로 나온다. 유사도는 0.6대로
+# 낮지 않아 점수로는 걸러지지 않는다. 종류로 걸러야 한다.
+#
+# 인물·제도·단체·지명·사건은 문화유산을 이해하는 배경이지 방문하거나 감상할
+# 대상이 아니라서 뺀다.
+# 연결 근거로 쓸 수 없는 값. `미상`은 6,586건이 함께 달고 있어서 같은 값이라는
+# 사실이 아무것도 설명하지 못한다. 이런 축은 아예 만들지 않는다.
+UNKNOWN_VALUES = ("미상", "불명", "확인 불가")
+
+HERITAGE_TYPES = (
+    "유적",
+    "유물",
+    "물품",
+    "작품",
+    "문헌",
+    "의례·행사",
+    "의복",
+    "음식·약",
+    "놀이",
+)
+
+# 뿌리 문서를 설명할 때 보여 줄 길이.
+SUMMARY_LIMIT = 220
+
 # 대분류만 맞춰 후보를 넓힌다. `조선/조선 전기`와 `조선/조선 후기`는 사용자에게
 # 모두 "조선"이다. 값이 정확히 같은 것만 묶으면 연결이 지나치게 끊긴다.
 _VALUE_SEPARATOR = "|"
@@ -115,6 +142,20 @@ class Catalog:
         }
         return sorted(found)
 
+    def is_heritage(self, entry: Entry) -> bool:
+        return top_level(entry.item_type) in HERITAGE_TYPES
+
+    def heritage_type_values(self, *, exclude_top_level: str = "") -> list[str]:
+        """문화유산으로 볼 `primary_type` 문자열 목록. Pinecone 필터에 그대로 쓴다."""
+        found = {
+            entry.item_type
+            for entry in self.entries
+            if entry.item_type
+            and top_level(entry.item_type) in HERITAGE_TYPES
+            and top_level(entry.item_type) != exclude_top_level
+        }
+        return sorted(found)
+
     def titles_starting_with(self, prefix: str) -> list[Entry]:
         """`경복궁 경회루`처럼 뿌리 이름으로 시작하는 항목. 구성 요소에 해당한다."""
         prefix = _clean(prefix)
@@ -154,6 +195,7 @@ class Neighbors:
     def __init__(self, retriever: Any) -> None:
         self._retriever = retriever
         self._anchors: dict[str, str | None] = {}
+        self._summaries: dict[str, str] = {}
 
     def anchor(self, document_id: str) -> str | None:
         """뿌리 문서를 대표할 청크 id.
@@ -173,12 +215,22 @@ class Neighbors:
             filter={"document_id": {"$eq": document_id}},
         )
         matches = response.get("matches", [])
-        chosen = next(
-            (m["id"] for m in matches if (m.get("metadata") or {}).get("section") == "definition"),
-            matches[0]["id"] if matches else None,
+        definition = next(
+            (m for m in matches if (m.get("metadata") or {}).get("section") == "definition"),
+            matches[0] if matches else None,
         )
+        chosen = definition["id"] if definition else None
+        # 같은 조회로 설명 문장까지 가져온다. 따로 부르면 왕복이 한 번 더 는다.
+        if definition:
+            text = _clean((definition.get("metadata") or {}).get("content"))
+            if text:
+                self._summaries[document_id] = text
         self._anchors[document_id] = chosen
         return chosen
+
+    def summary(self, document_id: str) -> str:
+        """뿌리 문서의 설명 문장. `anchor()`를 부른 뒤에 값이 생긴다."""
+        return self._summaries.get(document_id, "")
 
     def search(
         self,
@@ -271,7 +323,7 @@ def build_map(
     anchor = neighbors.anchor(root.document_id) if neighbors is not None else None
 
     # 1. 구성 요소 — 만든 목록만으로 확실하게 판별된다.
-    parts = book.titles_starting_with(root.title)
+    parts = [e for e in book.titles_starting_with(root.title) if book.is_heritage(e)]
     if parts:
         ordered = sorted(parts, key=lambda e: e.title)
         if anchor:
@@ -296,13 +348,22 @@ def build_map(
 
     if anchor:
         # 2. 같은 시대 — 대분류가 같은 원본 문자열을 모두 건다.
-        era_values = book.values_sharing_top_level("period", root.period)
+        era = top_level(root.period)
+        era_values = (
+            book.values_sharing_top_level("period", root.period)
+            if era and era not in UNKNOWN_VALUES
+            else []
+        )
         if era_values:
-            era = top_level(root.period)
             found = neighbors.search(
                 anchor,
                 limit=limit,
-                metadata_filter={"era": {"$in": era_values}},
+                metadata_filter={
+                    "$and": [
+                        {"era": {"$in": era_values}},
+                        {"primary_type": {"$in": book.heritage_type_values()}},
+                    ]
+                },
                 exclude_documents=used,
             )
             add(
@@ -316,7 +377,11 @@ def build_map(
             )
 
         # 3. 같은 유형 — 궁궐이면 궁궐, 탑이면 탑.
-        type_values = book.values_sharing_top_level("item_type", root.item_type)
+        type_values = (
+            book.values_sharing_top_level("item_type", root.item_type)
+            if top_level(root.item_type) in HERITAGE_TYPES
+            else []
+        )
         if type_values:
             kind = top_level(root.item_type)
             found = neighbors.search(
@@ -341,7 +406,7 @@ def build_map(
         nearby = [
             e
             for e in book.in_region(root.region)
-            if e.document_id not in used and e.title != root.region
+            if e.document_id not in used and e.title != root.region and book.is_heritage(e)
         ]
         # 지역은 Pinecone 메타데이터에 없어 뜻으로 순위를 매길 수 없다. 가나다순으로
         # 두면 `강릉 갈골과줄`처럼 결이 다른 항목이 앞에 온다. 유형과 분야가 같은
@@ -361,16 +426,17 @@ def build_map(
     # 앞의 축들이 같은 유형에서 가까운 것을 이미 가져갔으므로, 그냥 두면
     # 여기도 궁궐 옆의 궁궐이 나온다. 유적을 빼야 인물·사건·개념이 올라온다.
     if anchor:
-        other_types = book.values_sharing_top_level("item_type", root.item_type)
+        other_kinds = book.heritage_type_values(exclude_top_level=top_level(root.item_type))
         found = neighbors.search(
             anchor,
             limit=limit,
-            metadata_filter={"primary_type": {"$nin": other_types}} if other_types else None,
+            metadata_filter={"primary_type": {"$in": other_kinds}} if other_kinds else None,
             exclude_documents=used,
         )
+        kind = top_level(root.item_type)
         add(
             "뜻밖의 이웃",
-            f"`{top_level(root.item_type) or '같은 유형'}`이 아닌 항목 가운데 내용이 가까운 것입니다.",
+            (f"`{kind}`이 아닌 다른 종류의 문화유산입니다." if kind else "다른 종류의 문화유산입니다."),
             [
                 _node(book.by_document[d], "내용이 가깝습니다")
                 for d, _ in found
@@ -378,11 +444,16 @@ def build_map(
             ],
         )
 
+    summary = neighbors.summary(root.document_id) if neighbors is not None else ""
+    if len(summary) > SUMMARY_LIMIT:
+        summary = summary[:SUMMARY_LIMIT].rstrip() + "…"
+
     return {
         "root": {
             "document_id": root.document_id,
             "title": root.title,
             "fields": root.summary_fields(),
+            "summary": summary,
             "source_url": root.source_url,
         },
         "branches": branches,

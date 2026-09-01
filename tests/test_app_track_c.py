@@ -277,6 +277,32 @@ class HeritageGraphTest(unittest.TestCase):
     def test_unknown_root_returns_none(self):
         self.assertIsNone(heritage_graph.build_map("없는유산", neighbors=None))
 
+    def test_only_heritage_types_are_recommended(self):
+        """`궁궐`을 뿌리로 두면 `영`·`장`·`서` 같은 한문학 개념이 올라왔었다."""
+        payload = heritage_graph.build_map("궁궐", neighbors=None)
+        for branch in payload["branches"]:
+            for node in branch["nodes"]:
+                entry = self.book.by_document[node["document_id"]]
+                with self.subTest(title=node["title"]):
+                    self.assertTrue(self.book.is_heritage(entry))
+
+    def test_heritage_values_leave_out_people_and_concepts(self):
+        values = self.book.heritage_type_values()
+        tops = {heritage_graph.top_level(v) for v in values}
+        self.assertTrue(tops.issubset(set(heritage_graph.HERITAGE_TYPES)))
+        self.assertNotIn("인물", tops)
+        self.assertNotIn("개념", tops)
+
+    def test_excluding_a_kind_drops_it(self):
+        values = self.book.heritage_type_values(exclude_top_level="유적")
+        self.assertNotIn("유적", {heritage_graph.top_level(v) for v in values})
+
+    def test_unknown_period_makes_no_branch(self):
+        """`미상`은 6,586건이 함께 달고 있어 같은 값이라는 사실이 아무것도 설명하지 못한다."""
+        self.assertEqual(heritage_graph.top_level(self.book.find("궁궐").period), "미상")
+        payload = heritage_graph.build_map("궁궐", neighbors=None)
+        self.assertFalse([b for b in payload["branches"] if b["title"].startswith("같은 시대")])
+
     def test_same_title_is_not_repeated(self):
         """`경주`나 `훈민정음`처럼 이름이 겹치는 문서가 여럿 있다."""
         payload = heritage_graph.build_map("훈민정음", neighbors=None)

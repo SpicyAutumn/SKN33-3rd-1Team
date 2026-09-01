@@ -49,8 +49,27 @@ def render() -> None:
     st.subheader("문화유산 탐험 지도")
     st.caption(
         "검색한 유산에서 시작해 연결된 다른 유산으로 옮겨 다닙니다. "
-        "이름을 누르면 그 유산이 새 출발점이 됩니다."
+        "이름을 누르면 그 유산이 새 출발점이 되고, 설명과 함께 지도가 다시 그려집니다."
     )
+    with st.expander("어떤 기준으로 추천하나요?"):
+        st.markdown(
+            "\n".join(
+                (
+                    "- **추천 대상은 문화유산만입니다.** "
+                    f"{'·'.join(heritage_graph.HERITAGE_TYPES)} 유형만 올립니다. "
+                    "인물·제도·단체·지명·사건은 문화유산을 이해하는 배경이지 "
+                    "찾아가 보거나 감상할 대상이 아니라 뺐습니다.",
+                    "- **가지마다 근거가 다릅니다.** "
+                    "`이 안에 있는 것`은 이름이 뿌리로 시작하는 항목, "
+                    "`같은 시대`·`같은 유형`은 백과사전이 매긴 분류가 같은 항목, "
+                    "`같은 지역`은 이름 앞머리가 같은 항목입니다.",
+                    "- **가지 안의 순서는 원문이 얼마나 가까운지로 정합니다.** "
+                    "제목이 아니라 그 문서 전체를 견줍니다.",
+                    f"- **`{'`·`'.join(heritage_graph.UNKNOWN_VALUES)}` 같은 값으로는 잇지 않습니다.** "
+                    "수천 건이 함께 달고 있어 같은 값이라는 사실이 아무것도 설명하지 못합니다.",
+                )
+            )
+        )
 
     result = st.session_state.get("last_result")
     if not result:
@@ -117,11 +136,13 @@ def _render_root(root: dict) -> None:
         f'<span class="map-chip"><b>{escape(label)}</b> {escape(value)}</span>'
         for label, value in root["fields"]
     )
+    summary = root.get("summary") or ""
     st.html(
         '<div class="map-root">'
         '<p class="map-root-label">지금 보고 있는 문화유산</p>'
         f'<h3>{escape(root["title"])}</h3>'
-        f'<div class="map-chips">{chips}</div>'
+        + (f'<p class="map-summary">{escape(summary)}</p>' if summary else "")
+        + f'<div class="map-chips">{chips}</div>'
         "</div>"
     )
     if root.get("source_url"):

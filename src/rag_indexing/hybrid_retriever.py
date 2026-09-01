@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from collections import Counter
 from typing import Any, Protocol
 
 
@@ -16,6 +17,7 @@ def reciprocal_rank_fusion(
     rrf_k: int = 60,
     dense_weight: float = 1.0,
     bm25_weight: float = 1.0,
+    max_chunks_per_document: int | None = None,
 ) -> list[dict[str, Any]]:
     """Fuse ranked result lists without directly comparing incompatible scores.
 
@@ -30,6 +32,8 @@ def reciprocal_rank_fusion(
         raise ValueError("rrf_k must be non-negative")
     if dense_weight < 0 or bm25_weight < 0:
         raise ValueError("retriever weights must be non-negative")
+    if max_chunks_per_document is not None and max_chunks_per_document < 1:
+        raise ValueError("max_chunks_per_document must be at least 1")
 
     candidates: dict[str, dict[str, Any]] = {}
     scores: dict[str, float] = {}
@@ -44,7 +48,16 @@ def reciprocal_rank_fusion(
                 scores[chunk_id] = 0.0
             scores[chunk_id] += weight / (rrf_k + rank)
 
-    ranked_ids = sorted(scores, key=lambda chunk_id: (-scores[chunk_id], chunk_id))[:top_k]
+    ranked_ids: list[str] = []
+    document_counts: Counter[str] = Counter()
+    for chunk_id in sorted(scores, key=lambda candidate_id: (-scores[candidate_id], candidate_id)):
+        document_id = str(candidates[chunk_id].get("document_id", ""))
+        if max_chunks_per_document is not None and document_counts[document_id] >= max_chunks_per_document:
+            continue
+        ranked_ids.append(chunk_id)
+        document_counts[document_id] += 1
+        if len(ranked_ids) == top_k:
+            break
     fused: list[dict[str, Any]] = []
     for rank, chunk_id in enumerate(ranked_ids, start=1):
         result = candidates[chunk_id]
@@ -68,6 +81,7 @@ class HybridRetriever:
         rrf_k: int = 60,
         dense_weight: float = 1.5,
         bm25_weight: float = 1.0,
+        max_chunks_per_document: int | None = None,
     ) -> None:
         if candidate_k < 1:
             raise ValueError("candidate_k must be at least 1")
@@ -77,6 +91,7 @@ class HybridRetriever:
         self.rrf_k = rrf_k
         self.dense_weight = dense_weight
         self.bm25_weight = bm25_weight
+        self.max_chunks_per_document = max_chunks_per_document
 
     def search(self, question: str, *, top_k: int = 5) -> list[dict[str, Any]]:
         candidate_k = max(top_k, self.candidate_k)
@@ -96,4 +111,5 @@ class HybridRetriever:
             rrf_k=self.rrf_k,
             dense_weight=self.dense_weight,
             bm25_weight=self.bm25_weight,
+            max_chunks_per_document=self.max_chunks_per_document,
         )

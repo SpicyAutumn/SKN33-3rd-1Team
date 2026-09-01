@@ -147,6 +147,34 @@ def test_rrf_promotes_a_document_found_by_both_retrievers() -> None:
     assert results[0]["score_type"] == "relevance"
 
 
+def test_rrf_limits_chunks_per_document_while_filling_top_k() -> None:
+    dense = [
+        {**_context("same-1", 1, 0.9), "document_id": "aks:same"},
+        {**_context("same-2", 2, 0.8), "document_id": "aks:same"},
+        {**_context("same-3", 3, 0.7), "document_id": "aks:same"},
+        {**_context("other-1", 4, 0.6), "document_id": "aks:other-1"},
+        {**_context("other-2", 5, 0.5), "document_id": "aks:other-2"},
+    ]
+
+    results = reciprocal_rank_fusion(
+        dense,
+        [],
+        top_k=3,
+        max_chunks_per_document=1,
+    )
+
+    assert [result["chunk_id"] for result in results] == ["same-1", "other-1", "other-2"]
+
+
+def test_rrf_rejects_non_positive_document_limit() -> None:
+    try:
+        reciprocal_rank_fusion([], [], top_k=3, max_chunks_per_document=0)
+    except ValueError as exc:
+        assert "max_chunks_per_document" in str(exc)
+    else:
+        raise AssertionError("a non-positive document limit must be rejected")
+
+
 def test_hybrid_retriever_requests_candidate_lists_before_final_top_k() -> None:
     class FakeRetriever:
         def __init__(self, results: list[dict[str, object]]) -> None:

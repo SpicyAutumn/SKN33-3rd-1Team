@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from rag_service.ollama_generator import OllamaGenerator
+from rag_service.ollama_generator import OllamaGenerator, _keep_alive_value
 
 
 CONTEXT = {
@@ -117,6 +117,19 @@ class OllamaGeneratorTest(unittest.TestCase):
             transport=transport,
         ).invoke(generation_request())
         self.assertEqual(captured["payload"]["keep_alive"], "30m")
+
+    def test_keep_alive_without_unit_is_sent_as_a_number(self) -> None:
+        """Ollama는 문자열 keep_alive를 Go duration으로 읽어 단위를 요구한다.
+
+        `-1`은 "계속 올려 둔다"는 뜻으로 문서에 나오는 값인데, 문자열로 보내면
+        `time: missing unit in duration "-1"`으로 400이 떨어진다.
+        """
+        self.assertEqual(_keep_alive_value("-1"), -1)
+        self.assertEqual(_keep_alive_value("3600"), 3600)
+        self.assertEqual(_keep_alive_value("1h"), "1h")
+        self.assertEqual(_keep_alive_value("30m"), "30m")
+        self.assertEqual(_keep_alive_value(""), "1h")
+        self.assertEqual(_keep_alive_value(None), "1h")
 
     def test_rejects_output_with_contract_fields_missing(self) -> None:
         def transport(url: str, payload: dict, timeout: float) -> dict:

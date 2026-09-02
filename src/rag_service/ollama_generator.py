@@ -144,6 +144,23 @@ SYSTEM_PROMPT = """당신은 검색된 역사·문화 문서를 근거로 답변
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
 
 
+def _keep_alive_value(raw: str | int | None) -> str | int:
+    """Ollama가 받아들이는 형태로 keep_alive를 넘긴다.
+
+    Ollama는 문자열이면 Go duration으로 읽어 단위를 요구하고("1h", "30m"),
+    숫자면 초로 읽는다. `-1`은 "계속 올려 둔다"는 뜻인데 문자열로 보내면
+    `time: missing unit in duration "-1"`으로 400이 떨어진다. 단위 없는
+    정수는 숫자로 바꿔 보낸다.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return "1h"
+    try:
+        return int(text)
+    except ValueError:
+        return text
+
+
 class OllamaGenerator:
     """Ollama Chat API를 GenerationComponent 계약에 맞게 감싼다."""
 
@@ -165,7 +182,9 @@ class OllamaGenerator:
             raise ValueError("OLLAMA_MODEL is required")
         self.timeout_seconds = timeout_seconds
         self.temperature = temperature
-        self.keep_alive = (keep_alive or os.getenv("OLLAMA_KEEP_ALIVE", "1h")).strip() or "1h"
+        self.keep_alive = _keep_alive_value(
+            keep_alive or os.getenv("OLLAMA_KEEP_ALIVE", "1h")
+        )
         self.transport = transport or self._post_json
 
     def invoke(self, generation_request: dict[str, Any]) -> dict[str, Any]:

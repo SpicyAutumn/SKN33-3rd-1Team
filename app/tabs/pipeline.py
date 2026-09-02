@@ -56,9 +56,9 @@ def _stage(number: int, user_side: str, system_side: str, *, pending: bool = Fal
 
 
 def render() -> None:
-    st.subheader("공정 견학")
+    st.subheader("파이프라인")
     st.caption(
-        "공장 견학처럼, 백과사전 원문이 답변이 되기까지의 공정을 그대로 열어 보여 드립니다. "
+        "백과사전 원문이 답변이 되기까지 거치는 단계를 그대로 열어 보여 드립니다. "
         "왼쪽은 사용자가 보는 화면, 오른쪽은 그때 시스템이 실제로 한 일입니다."
     )
 

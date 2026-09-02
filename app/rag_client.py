@@ -381,7 +381,7 @@ def bm25_index_chunk_count() -> int | None:
 
     전체 말뭉치의 일부만 넣은 인덱스로도 검색은 된다. 그러면 낱말 검색이
     닿지 못하는 문서가 생기는데 화면에는 아무 차이가 안 보인다.
-    그래서 조각 수를 읽어 공정 견학 탭에 그대로 띄운다.
+    그래서 조각 수를 읽어 파이프라인 탭에 그대로 띄운다.
     """
     path = bm25_index_path()
     if not path.is_file():
@@ -440,7 +440,7 @@ def build_retriever():
     BM25 인덱스는 Pinecone과 달리 공용이 아니라 각자 로컬에서 만들어야 한다
     (`scripts/build_aks_bm25.py`). 인덱스가 없다고 화면이 죽으면 아직 만들지
     않은 사람은 아무것도 볼 수 없으므로, 없으면 조용히 단독 검색으로 내린다.
-    어느 쪽으로 검색했는지는 공정 견학 탭에 그대로 표시한다.
+    어느 쪽으로 검색했는지는 파이프라인 탭에 그대로 표시한다.
     """
     from rag_indexing.pinecone_store import PineconeRetriever
 

@@ -26,7 +26,7 @@ def main() -> None:
     )
 
     chat_tab, process_tab, pipeline_tab, evaluation_tab, explore_tab = st.tabs(
-        ["질문하기", "답변 과정", "공정 견학", "평가 결과", "문화유산 탐험 지도"]
+        ["질문하기", "답변 과정", "파이프라인", "평가 결과", "문화유산 네트워크"]
     )
     with chat_tab:
         chat.render()

@@ -1,4 +1,4 @@
-"""문화유산 탐험 지도.
+"""문화유산 네트워크.
 
 검색한 유산 하나를 뿌리로 두고, 거기서 뻗어 나가는 다른 유산을 보여 준다.
 이름을 누르면 그 유산이 새 뿌리가 되어 지도가 다시 그려진다. 한 번 검색한
@@ -47,10 +47,11 @@ def _reset_to_search(root) -> None:
 
 
 def render() -> None:
-    st.subheader("문화유산 탐험 지도")
+    st.subheader("문화유산 네트워크")
     st.caption(
         "검색한 유산에서 시작해 연결된 다른 유산으로 옮겨 다닙니다. "
-        "이름을 누르면 그 유산이 새 출발점이 되고, 설명과 함께 지도가 다시 그려집니다."
+        "이름에 커서를 올리면 그 유산의 설명이 보이고, 누르면 새 출발점이 되어 "
+        "네트워크가 다시 그려집니다."
     )
     with st.expander("어떤 기준으로 추천하나요?"):
         st.markdown(
@@ -76,7 +77,7 @@ def render() -> None:
 
     result = st.session_state.get("last_result")
     if not result:
-        st.info("질문하기 탭에서 답변을 받은 뒤 탐험 지도를 확인해 주세요.")
+        st.info("질문하기 탭에서 답변을 받은 뒤 문화유산 네트워크를 확인해 주세요.")
         return
 
     book = heritage_graph.catalog()

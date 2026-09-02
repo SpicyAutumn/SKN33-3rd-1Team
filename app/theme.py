@@ -197,7 +197,7 @@ div[data-testid="stMetric"] {
 }
 div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
 
-/* ── 탐험 지도 ────────────────────────────────────── */
+/* ── 문화유산 네트워크 ────────────────────────────────────── */
 .map-root {
   margin: .2rem 0 1rem;
   padding: 1.1rem 1.3rem;
@@ -219,7 +219,7 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
 }
 .map-summary { margin: 0 0 .75rem; font-size: .92rem; line-height: 1.6; opacity: .85; }
 
-/* 탐험 지도 — 방사형 별자리.
+/* 문화유산 네트워크 — 방사형 별자리.
    SVG는 마크다운으로 넣는다. st.html은 SVG를 통째로 걷어낸다. */
 .hm-wrap {
   position: relative;

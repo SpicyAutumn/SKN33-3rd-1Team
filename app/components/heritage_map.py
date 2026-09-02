@@ -36,8 +36,10 @@ CENTER_Y = HEIGHT / 2
 
 ROOT_W, ROOT_H, ROOT_R = 250, 100, 24
 
-# 가운데에서 가지 이름까지. 이름이 길어 자리가 모자라면 이 값을 줄인다.
-CLUSTER_RX, CLUSTER_RY = 230, 230
+# 가운데에서 가지 이름까지. 세로는 이미 꽉 차서 고정이고, 가로는 이름 길이에
+# 맞춰 `cluster_rx()`가 정한다. 230으로 묶어 두었더니 좌우로 294px씩 놀았다.
+CLUSTER_RY = 230
+CLUSTER_RX_MIN, CLUSTER_RX_MAX = 230, 440
 TOP_CLUSTER_DY = 130    # 12시 무리는 줄이 위로 뻗으므로 가운데에 바짝 붙인다
 TOP_CLUSTER_DX = 0      # 점이 이름 안쪽에 붙으므로 밀지 않아도 된다
 
@@ -128,11 +130,37 @@ def _root(title: str) -> str:
     )
 
 
-def _cluster_spot(angle: float) -> tuple[float, float, str]:
+def cluster_rx(branches: list[dict[str, Any]]) -> float:
+    """가지 무리를 가운데에서 얼마나 밀어낼지. 남는 가로 여백을 다 쓴다.
+
+    무리를 밖으로 밀수록 가운데 유산과 떨어져 숨통이 트인다. 얼마나 밀 수
+    있는지는 그 무리에서 가장 긴 이름이 정한다. 이름은 점에서 바깥으로
+    뻗으므로, 긴 이름이 달린 무리는 덜 밀고 짧은 쪽은 더 밀 수 있다.
+
+    고정값으로 두면 둘 중 하나가 된다. 작게 잡으면 지금처럼 좌우가 놀고,
+    크게 잡으면 이름이 긴 유산에서 글자가 화면을 벗어난다.
+    """
+    limit = CLUSTER_RX_MAX
+    for index, branch in enumerate(branches[: len(CLUSTER_ANGLES)]):
+        cosine = math.cos(math.radians(CLUSTER_ANGLES[index]))
+        if abs(cosine) < 0.2:
+            # 12시 무리는 가운데 위에 그대로 선다. 가로로 밀리지 않는다.
+            continue
+        widest = max(
+            (label_width(str(node.get("title", ""))) for node in branch.get("nodes") or ()),
+            default=0.0,
+        )
+        # 점은 가지 이름의 안쪽 끝에 붙고, 글자는 거기서 DOT_GAP만큼 더 간다.
+        reach = max(PILL_W / 2, widest + DOT_GAP - (PILL_W / 2 - 10))
+        limit = min(limit, (CENTER_X - EDGE_MARGIN - reach) / abs(cosine))
+    return max(CLUSTER_RX_MIN, limit)
+
+
+def _cluster_spot(angle: float, rx: float) -> tuple[float, float, str]:
     """가지 자리와 글자 방향. 오른쪽 무리는 오른쪽으로, 왼쪽 무리는 왼쪽으로 쓴다."""
     radians = math.radians(angle)
     cosine = math.cos(radians)
-    x = CENTER_X + CLUSTER_RX * cosine
+    x = CENTER_X + rx * cosine
     if abs(cosine) < 0.2:
         # 12시 무리는 줄이 위로 뻗는다. 가운데 유산에 바짝 붙여야 위쪽 다섯 줄이
         # 화면 안에 들어온다. 자리가 모자랄 때 줄일 곳은 이 간격이다.
@@ -163,11 +191,12 @@ def render(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     ]
     hits: list[dict[str, Any]] = []
     delay = 0.0
+    rx = cluster_rx(branches)
 
     for index, branch in enumerate(branches[: len(CLUSTER_ANGLES)]):
         color = BRANCH_COLORS[index % len(BRANCH_COLORS)]
         nodes = branch.get("nodes") or []
-        cx, cy, anchor = _cluster_spot(CLUSTER_ANGLES[index])
+        cx, cy, anchor = _cluster_spot(CLUSTER_ANGLES[index], rx)
         direction = 0 if anchor == "middle" else (1 if anchor == "start" else -1)
 
         pill_x = cx - PILL_W / 2

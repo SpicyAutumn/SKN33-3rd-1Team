@@ -177,13 +177,16 @@ def _render_trail(searched) -> None:
     steps += [title for document_id, title in trail if document_id != searched.document_id]
     st.caption(" → ".join(f"`{step}`" for step in steps) + f" → **{root_title}**")
 
-    columns = st.columns([1, 1, 6])
-    if trail and columns[0].button("← 뒤로", use_container_width=True):
-        st.session_state["explore_root"] = trail.pop()
-        st.rerun()
-    if columns[1].button("검색 결과로", use_container_width=True):
-        _reset_to_search(searched)
-        st.rerun()
+    # 좁게 두면 `검색 결과로`가 두 줄로 접힌다. 글자가 들어갈 만큼 넓히고,
+    # 화면이 더 좁아져도 접히지 않도록 CSS에서 줄바꿈을 막는다.
+    with st.container(key="heritage-trail"):
+        columns = st.columns([1, 1.6, 5.4])
+        if trail and columns[0].button("← 뒤로", use_container_width=True):
+            st.session_state["explore_root"] = trail.pop()
+            st.rerun()
+        if columns[1].button("검색 결과로", use_container_width=True):
+            _reset_to_search(searched)
+            st.rerun()
 
 
 def _render_root(root: dict) -> None:

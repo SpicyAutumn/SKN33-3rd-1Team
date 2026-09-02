@@ -83,7 +83,7 @@ def _render_flow(result, response, contexts, used_ids, scores, documents) -> Non
     score_range = (
         f"{retrieval.format_score(max(scores))} ~ {retrieval.format_score(min(scores))}"
         if scores
-        else "유사도 없음"
+        else "측정값 없음"
     )
     mode = retrieval.retrieval_mode()
     if mode == "hybrid":
@@ -118,7 +118,9 @@ def _render_flow(result, response, contexts, used_ids, scores, documents) -> Non
         _stage(
             2,
             "‘공식 자료를 검색하고 있습니다…’",
-            f"{search_detail}<br><span class='process-note'>유사도 {score_range}</span>",
+            f"{search_detail}<br><span class='process-note'>{retrieval.SCORE_NAME} {score_range}"
+            + ("  (참고값 · 순위와 순서가 다를 수 있습니다)" if retrieval.score_is_reference_only() else "")
+            + "</span>",
         ),
         _stage(
             3,
@@ -151,13 +153,16 @@ def _render_flow(result, response, contexts, used_ids, scores, documents) -> Non
             )
         )
 
+    # 모델 이름은 화면에 박아 두지 않는다. Qwen에서 exaone으로 바뀌었을 때
+    # 문구만 옛 이름을 붙들고 있었다. 응답이 알려 주면 그것을, 아니면 설정값을 쓴다.
+    generation = response.get("generation_metadata") or {}
+    model_note = escape(str(generation.get("model_id") or retrieval.generation_model()))
     stages.append(
         _stage(
             5,
             "답변 문장이 자연스럽게 다듬어집니다.",
             "검색된 근거 안에서만 설명 수준에 맞게 다시 씁니다."
-            "<br><span class='process-note'>준비 중 — 생성 담당 작업이 연결되면 동작합니다.</span>",
-            pending=True,
+            f"<br><span class='process-note'>{model_note} · RunPod Ollama</span>",
         )
     )
     stages.append(

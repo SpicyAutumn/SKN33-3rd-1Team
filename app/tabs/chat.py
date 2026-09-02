@@ -27,7 +27,10 @@ def render() -> None:
 
     live = retrieval.is_live()
     if live:
-        st.caption("✅ 실제 RAG 연결됨 — Pinecone에서 근거를 찾고 RunPod Qwen이 근거 기반 답변을 생성합니다.")
+        st.caption(
+            "✅ 실제 RAG 연결됨 — Pinecone에서 근거를 찾고 "
+            f"`{retrieval.generation_model()}`이 그 근거 안에서만 답변을 만듭니다."
+        )
     else:
         # [제거 예정] .env 키를 받으면 이 안내와 아래 응답 유형 선택 항목을 함께 지운다.
         st.caption("🔧 Mock 응답 모드 — 화면 확인용입니다. `.env`에 키를 넣으면 실제 검색으로 자동 전환됩니다.")

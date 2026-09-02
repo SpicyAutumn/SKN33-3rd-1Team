@@ -21,8 +21,12 @@ import regions  # noqa: E402
 import retrieval  # noqa: E402
 from components.citations import group_by_document  # noqa: E402
 from tabs.chat import _reusable_contexts  # noqa: E402
-from tabs.evaluation import _evaluate_once, _metric_display_value  # noqa: E402
-from tabs.explore import _build_payload  # noqa: E402
+import heritage_graph  # noqa: E402
+from tabs.evaluation import (  # noqa: E402
+    ANSWER_METRICS,
+    _evaluate_once,
+    _metric_display_value,
+)
 
 
 def context(
@@ -62,21 +66,6 @@ class EvaluationMetricDisplayTest(unittest.TestCase):
             }
         }
         self.assertEqual(_metric_display_value("faithfulness", result), "0.877")
-
-    def test_displays_missing_reference_exactly(self):
-        result = {
-            "metrics": {
-                "context_recall": {
-                    "score": None,
-                    "status": "not_applicable",
-                    "message": "기준 답안 없음",
-                }
-            }
-        }
-        self.assertEqual(
-            _metric_display_value("context_recall", result),
-            "N/A · 기준 답안 없음",
-        )
 
 
 class AutomaticRagasEvaluationTest(unittest.TestCase):
@@ -190,7 +179,7 @@ class EvidenceSelectionTest(unittest.TestCase):
 
 
 class EvidenceCheckerTest(unittest.TestCase):
-    """점수 기준선은 쓰지 않는다. 내용이 있으면 통과."""
+    """점수 기준선은 쓰지 않는다. 판단은 근거를 읽는 생성기에 맡긴다."""
 
     def setUp(self):
         self.checker = rag_client.ContentEvidenceChecker()
@@ -209,6 +198,27 @@ class EvidenceCheckerTest(unittest.TestCase):
 
     def test_no_contexts_is_insufficient(self):
         self.assertEqual(self.checker.decide("q", []), "insufficient")
+
+    def test_second_ask_defers_to_the_generator(self):
+        """RagService는 생성기가 근거 부족이라고 했을 때만 다시 물어본다.
+
+        늘 통과시키면 서비스가 불일치를 오류로 보고 예외를 던진다.
+        범위 밖 질문에서는 반드시 그렇게 된다.
+        """
+        contexts = [context(chunk_id="c1", document_id="d1", title="A")]
+        self.assertEqual(self.checker.decide("아이폰 가격", contexts), "sufficient")
+        self.assertEqual(self.checker.decide("아이폰 가격", contexts), "insufficient")
+
+    def test_a_different_question_starts_over(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="A")]
+        self.checker.decide("아이폰 가격", contexts)
+        self.assertEqual(self.checker.decide("경복궁에 대해 알려줘", contexts), "sufficient")
+
+    def test_the_next_question_is_not_blocked_by_the_previous_one(self):
+        contexts = [context(chunk_id="c1", document_id="d1", title="A")]
+        self.checker.decide("아이폰 가격", contexts)
+        self.checker.decide("아이폰 가격", contexts)
+        self.assertEqual(self.checker.decide("아이폰 가격", contexts), "sufficient")
 
 
 class GeneratorContractTest(unittest.TestCase):
@@ -308,31 +318,113 @@ class RegionTest(unittest.TestCase):
         self.assertIsNone(regions.detect("훈민정음", "본문"))
 
 
-class ExplorationMapTest(unittest.TestCase):
-    METADATA = {
-        "field": "종교·철학/불교",
-        "era": "고대/남북국/통일신라",
-        "primary_type": "유적/건물",
-    }
+class HeritageGraphTest(unittest.TestCase):
+    """탐험 지도는 만든 목록 전체를 재료로 쓴다. 검색 결과 3건이 아니다."""
 
-    def test_axes_are_labelled_and_peers_linked(self):
-        payload = _build_payload(
-            "석굴암",
-            [
-                context(chunk_id="c1", document_id="d1", title="경주 석굴암 석굴", rank=1, metadata=self.METADATA),
-                context(chunk_id="c2", document_id="d2", title="경주 동천동 마애삼존불", rank=2, metadata=self.METADATA),
-            ],
+    @classmethod
+    def setUpClass(cls):
+        cls.book = heritage_graph.catalog()
+
+    def test_catalog_covers_the_whole_corpus(self):
+        self.assertGreater(len(self.book.entries), 70_000)
+
+    def test_top_level_folds_sub_periods(self):
+        self.assertEqual(heritage_graph.top_level("조선/조선 전기"), "조선")
+        self.assertEqual(heritage_graph.top_level("조선/조선 전기 | 조선/조선 후기"), "조선")
+        self.assertEqual(heritage_graph.top_level(""), "")
+
+    def test_lookup_by_title_and_document_id(self):
+        entry = self.book.find("경복궁")
+        self.assertIsNotNone(entry)
+        self.assertEqual(self.book.find(entry.document_id).title, "경복궁")
+
+    def test_parts_are_found_by_title_prefix(self):
+        titles = {e.title for e in self.book.titles_starting_with("경복궁")}
+        self.assertIn("경복궁 경회루", titles)
+        self.assertNotIn("경복궁", titles)
+
+    def test_region_comes_from_the_title(self):
+        self.assertEqual(self.book.find("강릉 오죽헌").region, "강릉")
+
+    def test_map_without_search_still_has_branches(self):
+        """검색 연결이 없어도 만든 목록만으로 그릴 수 있는 가지는 남는다."""
+        payload = heritage_graph.build_map("경복궁", neighbors=None)
+        self.assertEqual(payload["root"]["title"], "경복궁")
+        titles = [b["title"] for b in payload["branches"]]
+        self.assertIn("딸린 유산", titles)
+
+    def test_unknown_root_returns_none(self):
+        self.assertIsNone(heritage_graph.build_map("없는유산", neighbors=None))
+
+    def test_only_heritage_types_are_recommended(self):
+        """`궁궐`을 뿌리로 두면 `영`·`장`·`서` 같은 한문학 개념이 올라왔었다."""
+        payload = heritage_graph.build_map("궁궐", neighbors=None)
+        for branch in payload["branches"]:
+            for node in branch["nodes"]:
+                entry = self.book.by_document[node["document_id"]]
+                with self.subTest(title=node["title"]):
+                    self.assertTrue(self.book.is_heritage(entry))
+
+    def test_heritage_values_leave_out_people_and_concepts(self):
+        values = self.book.heritage_type_values()
+        tops = {heritage_graph.top_level(v) for v in values}
+        self.assertTrue(tops.issubset(set(heritage_graph.HERITAGE_TYPES)))
+        self.assertNotIn("인물", tops)
+        self.assertNotIn("개념", tops)
+
+    def test_excluding_a_kind_drops_it(self):
+        values = self.book.heritage_type_values(exclude_top_level="유적")
+        self.assertNotIn("유적", {heritage_graph.top_level(v) for v in values})
+
+    def test_unknown_period_makes_no_branch(self):
+        """`미상`은 6,586건이 함께 달고 있어 같은 값이라는 사실이 아무것도 설명하지 못한다."""
+        self.assertEqual(heritage_graph.top_level(self.book.find("궁궐").period), "미상")
+        payload = heritage_graph.build_map("궁궐", neighbors=None)
+        self.assertFalse([b for b in payload["branches"] if b["title"].startswith("시대 :")])
+
+    def test_root_prefers_a_heritage_item_over_a_concept(self):
+        """`직지`를 물으면 검색 1위가 `직`(유교 개념)이고 정답은 2위였다."""
+        contexts = [
+            {"document_id": self.book.find("직").document_id, "title": "직", "retrieval_rank": 1},
+            {
+                "document_id": self.book.find("불조직지심체요절").document_id,
+                "title": "불조직지심체요절",
+                "retrieval_rank": 2,
+            },
+        ]
+        self.assertEqual(self.book.resolve(contexts, "직지").title, "불조직지심체요절")
+
+    def test_root_prefers_the_document_with_more_chunks(self):
+        """`거북선에 대해 알려줘`는 1위가 `거북점`이었다. 둘 다 문화유산이다."""
+        turtle = self.book.find("거북선").document_id
+        divination = self.book.find("거북점").document_id
+        contexts = [
+            {"document_id": divination, "title": "거북점", "retrieval_rank": 1},
+            {"document_id": turtle, "title": "거북선", "retrieval_rank": 2},
+            {"document_id": turtle, "title": "거북선", "retrieval_rank": 3},
+        ]
+        self.assertEqual(self.book.resolve(contexts, "거북선에 대해 알려줘").title, "거북선")
+
+    def test_no_usable_context_gives_no_root(self):
+        self.assertIsNone(self.book.resolve([{"document_id": "없음", "title": "없음"}], "질문"))
+
+    def test_region_comes_from_the_address_when_the_title_has_none(self):
+        """제목으로 지역이 잡히는 항목은 9.6%뿐이다. `경복궁`도 그중에 없다."""
+        self.assertEqual(self.book.find("경복궁").region, "")
+        self.assertEqual(
+            heritage_graph.region_from_summary("서울특별시 종로구 세종로에 있는 궁궐."), "서울"
         )
-        labels = [k["keyword"] for k in payload["keywords"]]
-        self.assertIn("분야 : 종교·철학/불교", labels)
-        self.assertIn("시대 : 고대", labels)
-        self.assertIn("지역 : 경주", labels)
-        self.assertEqual(payload["root"], "경주 석굴암 석굴")
-        peers = [c["keyword"] for c in payload["related"]["시대 : 고대"]]
-        self.assertIn("경주 동천동 마애삼존불", peers)
+        self.assertEqual(
+            heritage_graph.region_from_summary("경상북도 경주시 진현동에 있다."), "경주"
+        )
+        self.assertEqual(heritage_graph.region_from_summary("조선 후기의 문신이다."), "")
 
-    def test_no_contexts_returns_none(self):
-        self.assertIsNone(_build_payload("질문", []))
+    def test_same_title_is_not_repeated(self):
+        """`경주`나 `훈민정음`처럼 이름이 겹치는 문서가 여럿 있다."""
+        payload = heritage_graph.build_map("훈민정음", neighbors=None)
+        titles = [n["title"] for b in payload["branches"] for n in b["nodes"]]
+        self.assertEqual(len(titles), len(set(titles)))
+        self.assertNotIn("훈민정음", titles)
 
 
 class HybridSimilarityTest(unittest.TestCase):
@@ -407,6 +499,19 @@ class ScoreDisplayTest(unittest.TestCase):
 
     def test_unmeasured_similarity_is_blank_not_zero(self):
         self.assertEqual(retrieval.format_score(None), "—")
+
+    def test_hybrid_marks_the_score_as_reference_only(self):
+        """1위 숫자가 2·3위보다 낮아 보일 수 있으므로 참고값이라고 밝힌다."""
+        present = str(Path(__file__).resolve())
+        with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": present}):
+            self.assertTrue(retrieval.score_is_reference_only())
+            self.assertIn("참고값", retrieval.score_caption())
+
+    def test_dense_only_keeps_the_plain_explanation(self):
+        absent = str(PROJECT_ROOT / "data" / "processed" / "없는파일.sqlite3")
+        with mock.patch.dict(os.environ, {"AKS_BM25_INDEX_PATH": absent}):
+            self.assertFalse(retrieval.score_is_reference_only())
+            self.assertNotIn("참고값", retrieval.score_caption())
 
 
 class RetrievalReuseTest(unittest.TestCase):
@@ -500,6 +605,159 @@ class CompoundQuestionTest(unittest.TestCase):
         request["question"] = "경복궁에 대해 알려줘"
         result = rag_client.EvidencePassthroughGenerator().invoke(request)
         self.assertEqual(result["candidate_response_type"], "answered")
+
+class EnvPlaceholderTest(unittest.TestCase):
+    """`.env.example`을 복사만 하고 값을 안 바꾼 경우를 잡는다."""
+
+    def test_placeholder_counts_as_missing(self):
+        with mock.patch.dict(os.environ, {"OLLAMA_BASE_URL": "{{your_ollama_base_url}}"}):
+            self.assertIn("OLLAMA_BASE_URL", rag_client.missing_env())
+
+    def test_blank_counts_as_missing(self):
+        with mock.patch.dict(os.environ, {"OLLAMA_BASE_URL": "   "}):
+            self.assertIn("OLLAMA_BASE_URL", rag_client.missing_env())
+
+    def test_real_value_passes(self):
+        with mock.patch.dict(os.environ, {"OLLAMA_BASE_URL": "https://abc-11434.proxy.runpod.net"}):
+            self.assertNotIn("OLLAMA_BASE_URL", rag_client.missing_env())
+
+class ScopeCheckerTest(unittest.TestCase):
+    """범위 판정은 근거 충분성과 다른 문제다. 점수로는 걸러지지 않는다."""
+
+    OUT = [
+        "현대자동차 주가 알려",      # 현대자동차㈜는 백과사전에 있다. 주가가 없을 뿐이다.
+        "오늘 서울 날씨 어때",        # 서울특별시 항목의 기후 설명으로 오늘 날씨를 지어냈다.
+        "비트코인 시세",
+        "파이썬 for문 예제 알려줘",
+        "강남 맛집 추천",
+        "이 문장 번역해줘",
+    ]
+    IN = [
+        "경복궁에 대해 알려줘",
+        "석굴암 본존불의 특징은?",
+        "훈민정음은 무엇인가요?",
+        "측우기는 어떻게 날씨를 재나요?",       # `날씨`가 들어가도 지금을 묻지 않는다
+        "조선시대 날씨 기록은 어떻게 남겼나요?",
+        "조선시대 쌀 가격은 어땠나요?",         # `가격`도 마찬가지다
+    ]
+
+    def setUp(self):
+        self.checker = rag_client.TopicScopeChecker()
+
+    def test_questions_the_source_can_never_answer_are_blocked(self):
+        for question in self.OUT:
+            with self.subTest(question=question):
+                self.assertFalse(self.checker.is_in_scope(question))
+
+    def test_heritage_questions_pass(self):
+        for question in self.IN:
+            with self.subTest(question=question):
+                self.assertTrue(self.checker.is_in_scope(question))
+
+    def test_live_words_alone_do_not_block(self):
+        """`날씨`가 들어갔다고 막으면 측우기 질문을 막게 된다."""
+        self.assertTrue(self.checker.is_in_scope("조선의 날씨 관측 기구"))
+        self.assertFalse(self.checker.is_in_scope("지금 날씨"))
+
+    def test_empty_question_is_not_blocked_here(self):
+        """빈 질문은 RagService가 먼저 거른다. 범위 판정이 대신 막지 않는다."""
+        self.assertTrue(self.checker.is_in_scope(""))
+
+    # 차단어가 다른 낱말 안에 묻혀 있을 뿐인 질문들. 글자 포함 여부로 보던 때는
+    # 전부 막혔다. 고분군·석탑·굿·민요는 이 서비스의 한복판이다. (PR #25 리뷰)
+    BURIED = [
+        ("중금리 삼층석탑에 대해 알려줘", "금리"),
+        ("부여 상금리 고분군은 어떤 유적이야", "금리"),
+        ("경주 오금리 고분군 설명해줘", "금리"),
+        ("권주가는 어떤 노래야", "주가"),
+        ("마마배송굿에 대해 알려줘", "배송"),
+        ("별사시세탄이 뭐야", "시세"),
+        ("올해 강강수월래 행사는 어떤 의미야", "강수"),
+        ("동양척식주식회사는 지금 어떻게 됐어", "주식"),
+        ("정약용의 거주가 어디였나요?", "주가"),
+        ("금리자유화가 무엇인가요?", "금리"),
+    ]
+
+    def test_terms_buried_inside_other_words_do_not_block(self):
+        for question, term in self.BURIED:
+            with self.subTest(question=question, term=term):
+                self.assertIn(term, question)
+                self.assertTrue(self.checker.is_in_scope(question))
+
+    def test_encyclopedia_entries_that_are_the_term_still_pass(self):
+        """`배송`은 불교 의례, `강수`는 전통 인물, `분양가 상한제`는 제도 항목이다.
+
+        표제어 그 자체를 물었을 때까지 막으면 있는 항목을 못 묻게 된다.
+        """
+        for question in (
+            "배송은 어떤 불교 의례인가요?",
+            "강수는 어떤 인물인가요?",
+            "분양가 상한제는 무엇인가요?",
+            "현재 경복궁의 면적은 얼마인가요?",
+        ):
+            with self.subTest(question=question):
+                self.assertTrue(self.checker.is_in_scope(question))
+
+    def test_live_values_are_still_blocked(self):
+        """어절로 봐도 원래 막으려던 것은 그대로 막힌다."""
+        for question in (
+            "현대자동차 주가 알려줘",
+            "오늘 코스피 얼마야",
+            "파이썬으로 정렬 코드 짜줘",
+            "아이폰 최신 모델 가격 알려줘",
+            "지금 주문한 물건 배송 어디쯤이야",
+            "지금 환율 얼마야",
+        ):
+            with self.subTest(question=question):
+                self.assertFalse(self.checker.is_in_scope(question))
+
+
+class EvidenceCheckerStateTest(unittest.TestCase):
+    """근거 판정 상태는 요청 안에서만 산다. (PR #25 리뷰)
+
+    RagService는 생성기가 근거 부족을 내면 같은 근거로 한 번 더 물어본다.
+    그 재질의를 알아보려고 판정기가 직전 판단을 기억하는데, 요청이 끝나도
+    남아 있으면 같은 질문을 두 번째 할 때 곧바로 막힌다.
+    """
+
+    CONTEXTS = [{"chunk_id": "aks:E1:body:0001", "content": "경복궁은 조선의 법궁이다."}]
+
+    def setUp(self):
+        self.checker = rag_client.ContentEvidenceChecker()
+
+    def test_same_question_asked_again_is_not_blocked(self):
+        decisions = []
+        for _ in range(3):
+            self.checker.begin_request()
+            decisions.append(self.checker.decide("경복궁은?", self.CONTEXTS))
+        self.assertEqual(decisions, ["sufficient"] * 3)
+
+    def test_regeneration_within_one_request_follows_the_generator(self):
+        """한 요청 안에서 다시 물어오면 생성기 판단을 따른다."""
+        self.checker.begin_request()
+        self.assertEqual(self.checker.decide("경복궁은?", self.CONTEXTS), "sufficient")
+        self.assertEqual(self.checker.decide("경복궁은?", self.CONTEXTS), "insufficient")
+
+    def test_empty_contexts_are_insufficient(self):
+        self.checker.begin_request()
+        self.assertEqual(self.checker.decide("경복궁은?", []), "insufficient")
+
+class AnswerMetricsTest(unittest.TestCase):
+    """평가 탭에는 답변 층 지표만 둔다 (PR #28)."""
+
+    def test_only_answer_layer_metrics_are_shown(self):
+        self.assertEqual(list(ANSWER_METRICS), ["faithfulness", "answer_relevancy"])
+
+    def test_retrieval_layer_metrics_are_not_shown(self):
+        """정답 라벨이 있어야 계산되는 지표다. 임의 질문에서는 늘 평가 불가로 남는다."""
+        self.assertNotIn("context_precision", ANSWER_METRICS)
+        self.assertNotIn("context_recall", ANSWER_METRICS)
+
+    def test_each_metric_explains_itself(self):
+        for name, detail in ANSWER_METRICS.items():
+            with self.subTest(metric=name):
+                self.assertEqual(set(detail), {"title", "short", "definition", "improvement"})
+                self.assertTrue(all(str(v).strip() for v in detail.values()))
 
 if __name__ == "__main__":
     unittest.main()

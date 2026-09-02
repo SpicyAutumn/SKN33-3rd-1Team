@@ -16,6 +16,11 @@ from evaluation.ragas_evaluator import (
 # 답변 품질 지표는 새 답변이 생성되면 RAGAS LLM 심사로 자동 계산한다.
 # 같은 입력의 결과는 세션에 저장해 Streamlit 재실행 때 API를 다시 호출하지 않는다.
 # 계산할 수 없는 지표는 0점으로 만들지 않고 N/A와 이유를 표시한다.
+#
+# RAGAS 네 지표 가운데 답변 층 둘만 둔다. `context_precision`·`context_recall`은
+# 검색 층 지표이고 계산에 정답 라벨이 필요하다. 임의 질문에는 정답 라벨이 없어
+# 늘 `평가 불가`로만 남는다. 값이 나오지 않는 카드를 세워 두면 화면이 고장 난
+# 것처럼 보인다. (#28)
 ANSWER_METRICS = {
     "faithfulness": {
         "title": "Faithfulness",
@@ -28,18 +33,6 @@ ANSWER_METRICS = {
         "short": "답변이 질문에 관련 있는가",
         "definition": "최종 답변이 사용자가 던진 질문에 직접 답하는지 확인합니다.",
         "improvement": "점수가 낮으면 질문과 무관한 배경 설명을 줄이고, 질문의 핵심부터 답합니다.",
-    },
-    "context_precision": {
-        "title": "Context Precision",
-        "short": "상위 검색 청크가 적절한가",
-        "definition": "상위에 검색된 청크가 질문과 관련 있고, 중요한 근거가 앞순위에 있는지 확인합니다.",
-        "improvement": "점수가 낮으면 top_k, 메타데이터 필터, 재정렬 방식을 조정합니다.",
-    },
-    "context_recall": {
-        "title": "Context Recall",
-        "short": "필요한 근거를 충분히 찾았는가",
-        "definition": "정답에 필요한 정보가 검색된 청크 안에 충분히 포함되어 있는지 확인합니다.",
-        "improvement": "점수가 낮으면 검색 범위를 넓히거나 청킹 방식과 임베딩 입력을 점검합니다.",
     },
 }
 
@@ -95,14 +88,15 @@ def _render_retrieval_quality(contexts: list[dict], used: set[str]) -> None:
     # 하이브리드는 낱말 일치도 함께 보므로 순위와 유사도 순서가 어긋날 수 있다.
     # `1·2위 격차` 같은 표기는 그 전제가 깨지면 음수가 되어 뜻이 통하지 않는다.
     columns[3].metric(
-        "유사도 범위",
+        f"{retrieval.SCORE_NAME} 범위",
         f"{max(scores):.3f}" if scores else "—",
         delta=f"최저 {min(scores):.3f}" if len(scores) >= 2 else None,
         delta_color="off",
-        help="검색된 조각의 유사도입니다. 순위는 낱말 일치도 함께 보고 정하므로 유사도 순서와 다를 수 있습니다.",
+        help=retrieval.score_caption().replace("**", ""),
     )
 
-    st.markdown("##### 유사도 분포")
+    st.markdown(f"##### {retrieval.SCORE_NAME} 분포")
+    st.caption(retrieval.score_caption())
     _render_score_bars(contexts, used)
 
     for note in _observations(contexts, documents, scores):
@@ -154,18 +148,19 @@ def _observations(contexts: list[dict], documents: set[str], scores: list[float]
         spread = max(scores) - min(scores)
         if spread < 0.05:
             notes.append(
-                f"조각 {len(scores)}건의 유사도 차이가 {spread:.3f}뿐이라 "
-                "유사도만으로는 순위를 가리기 어렵습니다."
+                f"조각 {len(scores)}건의 {retrieval.SCORE_NAME} 차이가 {spread:.3f}뿐이라 "
+                "이 값만으로는 순위를 가리기 어렵습니다."
             )
     ranked = [s for s in (_score(c) for c in contexts) if s is not None]
     if len(ranked) >= 2 and ranked != sorted(ranked, reverse=True):
         notes.append(
-            "순위가 유사도 순서와 다릅니다. 낱말 일치를 함께 보고 순위를 정했다는 뜻입니다."
+            f"이번 결과는 순위가 {retrieval.SCORE_NAME} 순서와 다릅니다. "
+            "낱말 일치를 함께 보고 순위를 정했다는 뜻이며, 순위가 잘못된 것이 아닙니다."
         )
     missing = len(contexts) - len(scores)
     if missing:
         notes.append(
-            f"{missing}건은 낱말 검색으로만 올라와 유사도를 재지 않았습니다."
+            f"{missing}건은 낱말 검색으로만 올라와 {retrieval.SCORE_NAME}를 재지 않았습니다."
         )
     return notes
 
@@ -173,8 +168,10 @@ def _observations(contexts: list[dict], documents: set[str], scores: list[float]
 def _render_answer_quality(result: dict) -> None:
     st.markdown("#### 답변 품질")
     st.caption(
-        "새 답변이 생성될 때 RAGAS가 네 가지 지표를 자동으로 계산합니다. "
-        "같은 질문·답변·검색 근거는 저장된 평가 결과를 다시 사용합니다."
+        "새 답변이 생성될 때 RAGAS가 답변 층 지표 두 가지를 자동으로 계산합니다. "
+        "같은 질문·답변·검색 근거는 저장된 평가 결과를 다시 사용합니다. "
+        "검색 층 지표(Context Precision·Recall)는 계산에 정답 라벨이 필요해 "
+        "임의 질문에서는 잴 수 없습니다."
     )
 
     question = str(result.get("question") or "").strip()
@@ -214,7 +211,7 @@ def _render_answer_quality(result: dict) -> None:
             errors.pop(cache_key, None)
             st.rerun()
 
-    columns = st.columns(4)
+    columns = st.columns(len(ANSWER_METRICS))
     for column, (metric_name, detail) in zip(
         columns, ANSWER_METRICS.items(), strict=True
     ):
@@ -230,10 +227,6 @@ def _render_answer_quality(result: dict) -> None:
             f"임베딩: {evaluation_result['embedding_model']} · "
             f"평가 시간: {evaluation_result['elapsed_ms'] / 1000:.1f}초"
         )
-        if reference_record:
-            st.caption(
-                f"Context Recall 기준 답안: {reference_record.get('case_id', '승인된 Dev 문항')}"
-            )
 
     for detail in ANSWER_METRICS.values():
         with st.expander(f"{detail['title']} · {detail['short']}"):
@@ -291,6 +284,4 @@ def _metric_display_value(metric_name: str, evaluation_result: dict | None) -> s
     if isinstance(score, (int, float)) and not isinstance(score, bool):
         return f"{float(score):.3f}"
     message = str(metric.get("message") or "평가 불가")
-    if metric_name == "context_recall" and message == "기준 답안 없음":
-        return "N/A · 기준 답안 없음"
     return f"N/A · {message}"

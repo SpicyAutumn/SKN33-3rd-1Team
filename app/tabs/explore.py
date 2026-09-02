@@ -1,185 +1,221 @@
-"""이번 검색 결과로 연관 문화유산 지도를 만든다.
+"""문화유산 탐험 지도.
 
-검색 결과에는 분야·시대·유형·이칭 메타데이터가 함께 들어온다. 그 값이 겹치는
-항목을 이어 붙이면 추가 검색 없이 "왜 연결됐는지" 설명 가능한 지도가 만들어진다.
-표시 형식(`exploration_map.html`)은 그대로 두고 데이터만 실제 값으로 채운다.
+검색한 유산 하나를 뿌리로 두고, 거기서 뻗어 나가는 다른 유산을 보여 준다.
+이름을 누르면 그 유산이 새 뿌리가 되어 지도가 다시 그려진다. 한 번 검색한
+사용자가 몰랐던 유산까지 따라가게 하는 것이 이 화면의 목적이다.
+
+이전 판은 그 질문에서 검색된 청크 3개만 재료로 썼다. 이어 붙일 항목이 많아야
+둘이라 지도라고 부르기 어려웠다. 연결 재료는 `heritage_graph`가 만든 목록
+75,835건과 Pinecone에서 가져온다. 여기서는 보여 주는 일만 한다.
 """
 
-import json
-from pathlib import Path
+from html import escape
 
 import streamlit as st
-import streamlit.components.v1 as components
 
-import regions
+import heritage_graph
+from components import heritage_map
 
-
-# 메타데이터에서 가지로 쓸 축. 값의 앞부분(대분류)까지만 비교해 너무 잘게 쪼개지지 않게 한다.
-AXES = (
-    ("field", "분야", 2),
-    ("era", "시대", 1),
-    ("primary_type", "유형", 1),
-)
-
-SUMMARY_LIMIT = 160
+# 탐험 경로에 남길 최대 칸 수. 넘어가면 앞쪽을 접는다.
+TRAIL_LIMIT = 6
 
 
-def _particle(word: str, with_final: str, without_final: str) -> str:
-    """받침 유무에 따라 조사를 고른다. 한글이 아니면 받침 없는 쪽을 쓴다."""
-    last = word.strip()[-1:] if word.strip() else ""
-    if not ("가" <= last <= "힣"):
-        return without_final
-    return with_final if (ord(last) - 0xAC00) % 28 else without_final
+def _neighbors():
+    """Pinecone 연결은 한 번만 만든다. 앵커 조회 결과도 함께 재사용된다."""
+    if "explore_neighbors" not in st.session_state:
+        try:
+            st.session_state["explore_neighbors"] = heritage_graph.build_neighbors()
+        except Exception:  # noqa: BLE001
+            # 검색이 막혀도 만든 목록만으로 그릴 수 있는 가지는 남는다.
+            st.session_state["explore_neighbors"] = None
+    return st.session_state["explore_neighbors"]
 
 
-def _text(value) -> str:
-    text = str(value or "").strip()
-    return "" if text.upper() == "NONE" else text
+def _go(document_id: str, title: str) -> None:
+    """그 유산을 새 뿌리로 삼는다. 지나온 길은 남겨 둔다."""
+    trail = st.session_state.setdefault("explore_trail", [])
+    current = st.session_state.get("explore_root")
+    if current and current[0] != document_id:
+        trail.append(current)
+        del trail[:-TRAIL_LIMIT]
+    st.session_state["explore_root"] = (document_id, title)
 
 
-def _region(context: dict) -> tuple[str, str] | None:
-    """지역은 메타데이터에 없으므로 제목과 본문에서 뽑는다."""
-    return regions.detect(_text(context.get("title")), _text(context.get("content")))
-
-
-def _values(context: dict, key: str, depth: int) -> set[str]:
-    """`예술·체육/조각 | 종교·철학/불교`처럼 여러 값을 가진 필드를 갈라 낸다."""
-    raw = _text(context.get("metadata", {}).get(key))
-    if not raw:
-        return set()
-    values = set()
-    for part in raw.split("|"):
-        segments = [s for s in part.strip().split("/") if s]
-        if segments:
-            values.add("/".join(segments[:depth]))
-    return values
-
-
-def _unique_documents(contexts: list[dict]) -> list[dict]:
-    """같은 문서의 여러 조각 중 순위가 앞선 하나만 남긴다."""
-    seen: dict[str, dict] = {}
-    for context in contexts:
-        key = context.get("document_id") or context.get("title") or ""
-        if key and key not in seen:
-            seen[key] = context
-    return list(seen.values())
-
-
-def _summary(context: dict) -> str:
-    content = _text(context.get("content"))
-    if not content:
-        return "이번 검색 결과에 본문이 없습니다."
-    return content[:SUMMARY_LIMIT] + ("…" if len(content) > SUMMARY_LIMIT else "")
-
-
-def _build_payload(question: str, contexts: list[dict]) -> dict | None:
-    documents = _unique_documents(contexts)
-    if not documents:
-        return None
-
-    root = documents[0]
-    root_title = _text(root.get("title")) or "검색 결과"
-    others = [d for d in documents[1:] if _text(d.get("title")) and _text(d.get("title")) != root_title]
-
-    keywords: list[dict] = []
-    related: dict[str, list[dict]] = {}
-    summaries: dict[str, str] = {root_title: _summary(root)}
-
-    linked: set[str] = set()
-    for key, label, depth in AXES:
-        root_values = _values(root, key, depth)
-        if not root_values:
-            continue
-        for value in sorted(root_values):
-            peers = [d for d in others if value in _values(d, key, depth)]
-            if not peers:
-                continue
-            josa_wa = _particle(root_title, "과", "와")
-            josa_ga = _particle(label, "이", "가")
-            node = f"{label} : {value}"
-            keywords.append(
-                {"keyword": node, "relation": f"{root_title}{josa_wa} {label}{josa_ga} 같습니다"}
-            )
-            related[node] = []
-            for peer in peers:
-                title = _text(peer.get("title"))
-                linked.add(title)
-                summaries.setdefault(title, _summary(peer))
-                related[node].append({"keyword": title, "relation": f"{label} {value}"})
-            summaries[node] = (
-                f"이번 검색에서 {label}{josa_ga} `{value}`인 항목 {len(peers)}건이 함께 나왔습니다."
-            )
-
-    root_region = _region(root)
-    if root_region:
-        place, basis = root_region
-        peers = [d for d in others if (_region(d) or ("", ""))[0] == place]
-        josa_wa = _particle(root_title, "과", "와")
-        node = f"지역 : {place}"
-        keywords.append({"keyword": node, "relation": f"{root_title}{josa_wa} 지역이 같습니다"})
-        summaries[node] = (
-            f"`{place}` 지역입니다. {basis}에서 확인했습니다."
-            + (f" 이번 검색에서 같은 지역 항목 {len(peers)}건이 함께 나왔습니다." if peers else "")
-        )
-        if peers:
-            related[node] = []
-            for peer in peers:
-                title = _text(peer.get("title"))
-                linked.add(title)
-                summaries.setdefault(title, _summary(peer))
-                related[node].append({"keyword": title, "relation": f"{place} 지역"})
-
-    # 축에 걸리지 않은 항목도 검색 결과이므로 뿌리에 직접 붙인다.
-    for peer in others:
-        title = _text(peer.get("title"))
-        if title in linked:
-            continue
-        rank = peer.get("retrieval_rank")
-        keywords.append({"keyword": title, "relation": f"같은 검색에서 {rank}위로 나왔습니다"})
-        summaries.setdefault(title, _summary(peer))
-
-    for alias in _aliases(root):
-        if alias != root_title:
-            node = f"이칭 : {alias}"
-            keywords.append({"keyword": node, "relation": "같은 유산을 부르는 다른 이름"})
-            summaries.setdefault(node, f"`{root_title}`의 이칭입니다.")
-
-    if not keywords:
-        return None
-    return {"question": question, "root": root_title, "keywords": keywords, "related": related, "summaries": summaries}
-
-
-def _aliases(context: dict) -> list[str]:
-    raw = context.get("metadata", {}).get("aliases")
-    if isinstance(raw, list):
-        return [_text(item) for item in raw if _text(item)]
-    return [part.strip() for part in _text(raw).split(",") if part.strip()]
+def _reset_to_search(root) -> None:
+    st.session_state["explore_trail"] = []
+    st.session_state["explore_root"] = (root.document_id, root.title)
 
 
 def render() -> None:
     st.subheader("문화유산 탐험 지도")
-    st.caption("이번 검색에서 함께 나온 문화유산을 분야·시대·유형으로 이어 붙였습니다. 눌러서 펼쳐 보세요.")
+    st.caption(
+        "검색한 유산에서 시작해 연결된 다른 유산으로 옮겨 다닙니다. "
+        "이름을 누르면 그 유산이 새 출발점이 되고, 설명과 함께 지도가 다시 그려집니다."
+    )
+    with st.expander("어떤 기준으로 추천하나요?"):
+        st.markdown(
+            "\n".join(
+                (
+                    "- **추천 대상은 문화유산만입니다.** "
+                    f"{'·'.join(heritage_graph.HERITAGE_TYPES)} 유형만 올립니다. "
+                    "인물·제도·단체·지명·사건은 문화유산을 이해하는 배경이지 "
+                    "찾아가 보거나 감상할 대상이 아니라 뺐습니다.",
+                    "- **묶음마다 근거가 다릅니다.** "
+                    "`딸린 유산`은 이름이 지금 보는 유산으로 시작하는 것, "
+                    "`시대`·`종류`는 백과사전이 매긴 분류가 같은 것, "
+                    "`지역`은 이름 앞머리가 같은 것, "
+                    "`다른 갈래`는 종류는 다른데 원문이 가까운 것입니다.",
+                    "- **묶음 안의 순서는 원문이 얼마나 가까운지로 정합니다.** "
+                    "질문이 아니라 **지금 보고 있는 유산의 원문**을 기준으로 견줍니다. "
+                    "제목만 견주면 `경복궁`이 `계궁`·`양궁`처럼 글자만 닮은 낱말과 붙습니다.",
+                    f"- **`{'`·`'.join(heritage_graph.UNKNOWN_VALUES)}` 같은 값으로는 잇지 않습니다.** "
+                    "수천 건이 함께 달고 있어 같은 값이라는 사실이 아무것도 설명하지 못합니다.",
+                )
+            )
+        )
 
     result = st.session_state.get("last_result")
     if not result:
         st.info("질문하기 탭에서 답변을 받은 뒤 탐험 지도를 확인해 주세요.")
         return
 
-    payload = _build_payload(result.get("question", ""), result.get("retrieved_contexts", []))
-    if payload is None:
-        st.info("이번 응답에는 이어 볼 만한 문화유산이 없습니다. 다른 질문을 해 보세요.")
+    book = heritage_graph.catalog()
+    searched = book.resolve(result.get("retrieved_contexts", []), result.get("question", ""))
+    if searched is None:
+        st.warning("이번 검색 결과와 만든 목록을 연결하지 못했습니다.")
         return
 
-    template = (Path(__file__).resolve().parents[1] / "components" / "exploration_map.html").read_text(encoding="utf-8")
-    # 검색된 본문이 그대로 들어가므로 스크립트를 끊지 못하도록 막는다.
-    encoded = (
-        json.dumps(payload, ensure_ascii=False)
-        .replace("<", "\u003c")
-        .replace(">", "\u003e")
-        .replace("&", "\u0026")
+    # 새 질문을 하면 그 결과로 출발점을 되돌린다.
+    if st.session_state.get("explore_search") != searched.document_id:
+        st.session_state["explore_search"] = searched.document_id
+        _reset_to_search(searched)
+
+    root_id, root_title = st.session_state.get(
+        "explore_root", (searched.document_id, searched.title)
     )
-    components.html(template.replace("__EXPLORATION_DATA__", encoded), height=660, scrolling=False)
-    st.caption(
-        f"이번 검색 결과 {len(payload['keywords'])}개 가지로 만들었습니다. "
-        "연결 근거는 한국민족문화대백과사전의 분야·시대·유형 정보입니다."
+
+    _render_trail(searched)
+
+    with st.spinner("연결된 문화유산을 찾고 있습니다…"):
+        payload = heritage_graph.build_map(root_id, neighbors=_neighbors())
+
+    if payload is None:
+        st.warning(f"`{root_title}`의 연결 정보를 찾지 못했습니다.")
+        return
+
+    branches = payload["branches"]
+    if branches:
+        _render_stage(payload)
+
+    _render_root(payload["root"])
+
+    if not branches:
+        st.info("이 유산과 이어지는 항목을 찾지 못했습니다. 뒤로 돌아가 다른 길로 가 보세요.")
+        return
+
+    with st.expander("목록으로 보기"):
+        for index, branch in enumerate(branches):
+            with st.container(key=f"heritage-branch-{index}"):
+                _render_branch(branch)
+
+
+def _render_stage(payload: dict) -> None:
+    """지도 그림과 그 위에 겹치는 클릭 영역.
+
+    SVG는 `st.html`이 걷어내므로 마크다운으로 넣는다. 클릭은 SVG가 받지 않고
+    같은 자리에 겹쳐 둔 투명한 버튼이 받는다. SVG 안에서 링크로 처리하면
+    주소가 바뀌면서 페이지가 다시 열려 세션 상태가 날아간다.
+    """
+    svg, hits = heritage_map.render(payload)
+    if not svg:
+        return
+
+    with st.container(key="heritage-stage"):
+        st.markdown(svg, unsafe_allow_html=True)
+        st.html(heritage_map.position_css(hits))
+        for hit in hits:
+            with st.container(key=hit["key"]):
+                if st.button(
+                    " ",
+                    key=f"go-{hit['key']}",
+                    help=f"{hit['title']} — {hit['reason']}",
+                ):
+                    _go(hit["document_id"], hit["title"])
+                    st.rerun()
+
+
+def _render_trail(searched) -> None:
+    """지나온 길. 검색 결과로 돌아가는 길을 항상 열어 둔다."""
+    trail = st.session_state.get("explore_trail", [])
+    root_id, root_title = st.session_state.get("explore_root", (None, ""))
+    if not trail and root_id == searched.document_id:
+        return
+
+    steps = [searched.title]
+    steps += [title for document_id, title in trail if document_id != searched.document_id]
+    st.caption(" → ".join(f"`{step}`" for step in steps) + f" → **{root_title}**")
+
+    columns = st.columns([1, 1, 6])
+    if trail and columns[0].button("← 뒤로", use_container_width=True):
+        st.session_state["explore_root"] = trail.pop()
+        st.rerun()
+    if columns[1].button("검색 결과로", use_container_width=True):
+        _reset_to_search(searched)
+        st.rerun()
+
+
+def _render_root(root: dict) -> None:
+    chips = "".join(
+        f'<span class="map-chip"><b>{escape(label)}</b> {escape(value)}</span>'
+        for label, value in root["fields"]
     )
+    summary = root.get("summary") or ""
+    st.html(
+        '<div class="map-root">'
+        '<p class="map-root-label">지금 보고 있는 문화유산</p>'
+        f'<h3>{escape(root["title"])}</h3>'
+        + (f'<p class="map-summary">{escape(summary)}</p>' if summary else "")
+        + f'<div class="map-chips">{chips}</div>'
+        + (
+            f'<a class="map-source" href="{escape(root["source_url"])}" target="_blank" '
+            'rel="noopener noreferrer">공식 원문 보기 ↗</a>'
+            if root.get("source_url")
+            else ""
+        )
+        + "</div>"
+    )
+
+
+
+def _render_branch(branch: dict) -> None:
+    st.html(
+        '<div class="map-branch-head">'
+        f'<span class="map-branch-title">{escape(branch["title"])}</span>'
+        f'<span class="map-branch-note">{escape(branch["note"])}</span>'
+        "</div>"
+    )
+
+    nodes = branch["nodes"]
+    for column, node in zip(st.columns(len(nodes)), nodes, strict=False):
+        with column:
+            if st.button(
+                node["title"],
+                key=f"map-{branch['title']}-{node['document_id']}",
+                use_container_width=True,
+                help=_node_help(node),
+            ):
+                _go(node["document_id"], node["title"])
+                st.rerun()
+
+
+def _node_help(node: dict) -> str:
+    parts = [
+        f"{label} {value}"
+        for label, value in (
+            ("시대", node.get("period")),
+            ("분야", node.get("field")),
+            ("유형", node.get("item_type")),
+        )
+        if value
+    ]
+    return " · ".join(parts) or "추가 정보 없음"

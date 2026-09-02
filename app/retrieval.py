@@ -15,6 +15,7 @@ from rag_service import RagService
 from rag_client import (  # noqa: F401 - 화면에서 그대로 사용한다
     bm25_index_chunk_count,
     bm25_index_path,
+    generation_model,
     is_live,
     missing_env,
     retrieval_mode,
@@ -42,7 +43,7 @@ class _FixedContextsRetriever:
 
 @lru_cache(maxsize=1)
 def get_service() -> RagService:
-    """Streamlit 재실행 사이에도 Pinecone·BM25·Qwen 연결 객체를 재사용한다."""
+    """Streamlit 재실행 사이에도 Pinecone·BM25·생성 모델 연결 객체를 재사용한다."""
     return rag_client.build_service()
 
 
@@ -57,8 +58,12 @@ def _service_with_contexts(service: RagService, contexts: list[dict[str, Any]]) 
     )
 
 
+# 화면에 적는 점수 이름. 임베딩 코사인 유사도이지 최종 순위 점수가 아니다.
+SCORE_NAME = "의미 유사도"
+
+
 def format_score(score: Any) -> str:
-    """유사도 표기. 잰 적이 없으면 `—`.
+    """의미 유사도 표기. 잰 적이 없으면 `—`.
 
     낱말 검색으로만 올라온 조각은 유사도를 계산하지 않았다.
     없는 숫자를 0으로 적으면 가장 안 비슷한 것처럼 보이므로 비워 둔다.
@@ -66,6 +71,26 @@ def format_score(score: Any) -> str:
     if not isinstance(score, (int, float)) or isinstance(score, bool):
         return "—"
     return f"{score:.3f}"
+
+
+def score_is_reference_only() -> bool:
+    """화면 숫자가 순위를 설명하지 못하는 상태인지.
+
+    하이브리드는 의미와 낱말 일치를 합쳐 순위를 정하는데 화면에 적는 숫자는
+    의미 유사도뿐이다. 그래서 1위 숫자가 2·3위보다 낮게 보일 수 있다.
+    숫자 옆에 그 사실을 붙이지 않으면 순위가 잘못된 것처럼 읽힌다.
+    """
+    return retrieval_mode() == "hybrid"
+
+
+def score_caption() -> str:
+    """점수 옆에 붙이는 설명 한 줄."""
+    if score_is_reference_only():
+        return (
+            f"{SCORE_NAME}는 뜻이 얼마나 가까운지만 나타내는 **참고값**입니다. "
+            "순위는 여기에 낱말 일치까지 더해 정하므로 숫자 순서와 다를 수 있습니다."
+        )
+    return f"{SCORE_NAME}가 높을수록 질문과 뜻이 가깝습니다. 순위는 이 값 순서입니다."
 
 
 RETRIEVAL_LABELS = {
@@ -99,6 +124,12 @@ def answer(
       {response, retrieved_contexts, used_chunk_ids, retrieval_top_k}
     """
     service = get_service()
+    # 여기가 요청의 경계다. 서비스는 캐시되어 계속 살아 있으므로, 요청마다
+    # 근거 판정기의 지난 판단을 지워 준다. 남겨 두면 같은 질문을 두 번째
+    # 물었을 때 곧바로 근거 부족으로 막힌다.
+    checker = getattr(service, "evidence_checker", None)
+    if hasattr(checker, "begin_request"):
+        checker.begin_request()
     if retrieved_contexts is not None:
         service = _service_with_contexts(service, retrieved_contexts)
     return service.answer_with_trace(

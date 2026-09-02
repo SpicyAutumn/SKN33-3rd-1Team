@@ -51,10 +51,24 @@ def load_env() -> None:
             os.environ.setdefault(key, value)
 
 
+def _is_unset(value: str) -> bool:
+    """값이 비었거나 `.env.example`의 자리표시자 그대로인지.
+
+    `OLLAMA_BASE_URL={{your_ollama_base_url}}`처럼 예시를 복사만 하고
+    값을 바꾸지 않으면, 비어 있지 않으니 검사를 통과해 버린다. 그러면
+    화면에는 연결됨으로 뜨고 질문할 때가 되어서야 접속 오류가 난다.
+    """
+    text = value.strip()
+    return not text or (text.startswith("{{") and text.endswith("}}"))
+
+
 def missing_env() -> list[str]:
-    """비어 있는 필수 환경 변수 이름 목록. 값은 절대 반환하지 않는다."""
+    """비어 있거나 아직 채우지 않은 필수 환경 변수 이름 목록.
+
+    값은 절대 반환하지 않는다.
+    """
     load_env()
-    return [name for name in REQUIRED_ENV if not os.getenv(name, "").strip()]
+    return [name for name in REQUIRED_ENV if _is_unset(os.getenv(name, ""))]
 
 
 def is_live() -> bool:
@@ -142,17 +156,124 @@ def compound_clarification(question: str) -> dict[str, Any]:
     }
 
 
-class ContentEvidenceChecker:
-    """[제거 예정] 내용이 있는 조각이 하나라도 있으면 통과시키는 임시 판정기.
+# 이 서비스의 근거는 한국민족문화대백과사전 한 벌뿐이다. 아래 낱말이 묻는
+# 값은 어느 시점의 백과사전에도 들어 있지 않다. 검색은 성공할 수 있어서
+# 점수로는 걸러지지 않는다. `현대자동차㈜`도 `서울특별시`도 실제 항목이다.
+NEVER_IN_SOURCE = (
+    "주가", "시세", "환율", "코스피", "코스닥", "시가총액", "금리",
+    "항공권", "예매", "맛집", "실시간",
+    "파이썬", "자바스크립트", "코딩", "소스코드", "프로그래밍",
+    "번역해", "레시피",
+)
 
-    점수 기준선은 쓰지 않는다. 팀 결정(2026-09-01)에 따라 하이브리드 검색에는
-    점수 기준선을 두지 않기로 했고, 점수만으로는 그 조각이 질문에 답하는지
-    증명할 수도 없다. 실제 판정기가 준비되면 이 클래스를 지운다.
+# 아래 낱말은 백과사전 표제어이기도 하다. `조선시대 날씨 기록`은 답할 수 있고,
+# `강수`·`기온`은 전통 인물, `주식`은 고려 관직, `배송`은 불교 의례,
+# `분양가 상한제`는 제도 항목이다. 지금을 묻는 표시가 함께 있을 때만 막는다.
+LIVE_ONLY = ("날씨", "기온", "강수", "미세먼지", "주식", "가격", "배송", "분양가")
+NOW_MARKERS = ("오늘", "지금", "현재", "요즘", "내일", "이번 주", "올해", "최신")
+
+# 낱말 뒤에 이만큼 붙어도 같은 낱말로 본다. 조사와 흔한 종결·명령 어미다.
+# 목록 밖의 글자가 붙으면 다른 낱말로 본다. `주가`와 `주가교`, `금리`와
+# `금리자유화`를 가르는 것이 이 목록이다.
+TERM_TAILS = frozenset((
+    "", "은", "는", "이", "가", "을", "를", "의", "에", "에서", "에게",
+    "으로", "로", "와", "과", "도", "만", "부터", "까지", "나", "이나",
+    "라도", "처럼", "보다", "밖에", "조차", "마저", "요", "란", "이란",
+    "야", "이야", "인가", "인가요", "인지", "입니까", "입니다", "냐", "니",
+    "줘", "해줘", "주세요", "해주세요", "알려줘", "한다", "했다",
+))
+
+# 어절 양 끝에서 떼어 낼 문장 부호.
+TERM_PUNCTUATION = "·,.?!\"'()[]{}<>「」『』…~-"
+
+
+def mentions_term(question: str, terms: tuple[str, ...]) -> bool:
+    """질문이 그 낱말을 실제로 말하고 있는지 본다.
+
+    글자가 들어 있는지만 보면 안 된다. `중금리 삼층석탑`이 `금리`로,
+    `권주가`가 `주가`로, `마마배송굿`이 `배송`으로, `강강수월래`가
+    `강수`로 막혔다. 고분군·석탑·굿은 이 서비스의 한복판이다.
+
+    그래서 어절 단위로 본다. 어절이 그 낱말로 시작하고, 뒤에 붙은 것이
+    조사나 어미일 때만 같은 낱말로 친다. 막으려던 `현대자동차 주가`,
+    `파이썬으로 코드 짜줘`는 그대로 막힌다.
+    """
+    for raw in str(question or "").split():
+        word = raw.strip(TERM_PUNCTUATION)
+        if not word:
+            continue
+        for term in terms:
+            if word.startswith(term) and word[len(term):] in TERM_TAILS:
+                return True
+    return False
+
+
+class TopicScopeChecker:
+    """검색 전에 범위 밖 질문을 걸러낸다.
+
+    범위 판정은 근거 충분성과 다른 문제다. `현대자동차 주가`는 검색이
+    성공한다. 백과사전에 `현대자동차㈜` 항목이 실제로 있기 때문이다.
+    그러면 생성기는 회사 연혁으로 답을 만들어 버린다. 물어본 것은 주가인데
+    엉뚱한 것을 답하는 셈이다. `오늘 서울 날씨`는 더 나쁘다. `서울특별시`
+    항목의 기후 설명을 근거 삼아 오늘 날씨를 지어냈다.
+
+    여기서 막으면 검색도 생성도 하지 않으므로 지어낼 여지가 없다.
+
+    복합 질문에서는 멀쩡한 질문을 막지 않는 쪽을 택했지만 여기서는 반대다.
+    걸러진 질문은 자료에 답이 없어 어차피 답할 수 없고, 사용자는 다시
+    물으면 된다. 반대로 놓치면 없는 사실을 지어낸다.
     """
 
+    def is_in_scope(self, question: str) -> bool:
+        if mentions_term(question, NEVER_IN_SOURCE):
+            return False
+        if mentions_term(question, LIVE_ONLY) and mentions_term(question, NOW_MARKERS):
+            return False
+        return True
+
+
+class ContentEvidenceChecker:
+    """[제거 예정] 내용이 있으면 통과시키고, 생성기가 부족하다고 하면 그 판단을 따른다.
+
+    점수나 규칙만으로는 그 조각이 질문에 답하는지 알 수 없다. 실제로 판단할 수
+    있는 것은 근거를 읽는 생성기뿐이다. 그래서 처음에는 통과시켜 생성기가 보게
+    하고, 같은 질문·같은 근거로 다시 물어오면 그 판단을 따른다. RagService는
+    생성기가 `insufficient_evidence`를 낸 경우에만 다시 물어본다.
+
+    그냥 늘 통과시키면 RagService가 판정기와 생성기의 불일치를 오류로 보고
+    `generator rejected evidence that passed the service grounding policy`를
+    던진다. 범위 밖 질문에서는 반드시 그렇게 된다.
+
+    실제 EvidenceChecker가 준비되면 이 클래스를 지운다.
+    """
+
+    def __init__(self) -> None:
+        self._approved: tuple[str, tuple[str, ...]] | None = None
+
+    def begin_request(self) -> None:
+        """새 요청이 시작됐다. 지난 요청의 판단은 버린다.
+
+        이 상태는 한 요청 안에서 RagService가 같은 근거로 두 번 물어볼 때만
+        쓰라고 둔 것이다. 요청 사이에 남겨 두면 같은 질문을 두 번째 할 때
+        곧바로 `insufficient`가 나와 멀쩡한 답변이 막힌다. 설명 수준만
+        바꿔 다시 물어도 마찬가지다. 서비스 객체는 캐시되어 계속 살아 있다.
+        """
+        self._approved = None
+
     def decide(self, question: str, contexts: list[dict[str, Any]]) -> str:
-        usable = any(str(c.get("content", "")).strip() for c in contexts)
-        return "sufficient" if usable else "insufficient"
+        usable = [c for c in contexts if str(c.get("content", "")).strip()]
+        if not usable:
+            self._approved = None
+            return "insufficient"
+
+        key = (question, tuple(str(c.get("chunk_id", "")) for c in usable))
+        if self._approved == key:
+            # 생성기가 이 근거로는 답할 수 없다고 했다. 그 판단이 더 정확하다.
+            self._approved = None
+            return "insufficient"
+
+        self._approved = key
+        return "sufficient"
 
 
 class EvidencePassthroughGenerator:
@@ -243,6 +364,16 @@ def bm25_index_path() -> Path:
 def retrieval_mode() -> str:
     """이번 실행이 쓰는 검색 방식. `hybrid` 또는 `dense`."""
     return "hybrid" if bm25_index_path().is_file() else "dense"
+
+
+def generation_model() -> str:
+    """답변을 만드는 모델 이름.
+
+    화면 문구에 이름을 박아 두면 모델이 바뀔 때마다 어긋난다. 실제로 Qwen에서
+    exaone으로 바뀌었을 때 화면만 옛 이름을 붙들고 있었다. `.env`에서 읽는다.
+    """
+    load_env()
+    return os.getenv("OLLAMA_MODEL", "").strip() or "미설정"
 
 
 def bm25_index_chunk_count() -> int | None:
@@ -336,4 +467,5 @@ def build_service():
         retriever=build_retriever(),
         generator=CompoundAwareGenerator(OllamaGenerator()),
         evidence_checker=ContentEvidenceChecker(),
+        scope_checker=TopicScopeChecker(),
     )

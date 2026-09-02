@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 import unittest
 
-from rag_service.ollama_generator import OllamaGenerator, _keep_alive_value
+from rag_service.ollama_generator import (
+    OllamaGenerator,
+    _keep_alive_value,
+    _repair_chunk_ids,
+)
 
 
 CONTEXT = {
@@ -184,3 +188,83 @@ class OllamaGeneratorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChunkIdRepairTest(unittest.TestCase):
+    """모델이 chunk_id를 잘라서 돌려주는 것을 제자리로 되돌린다.
+
+    exaone은 없는 id를 지어내지 않는다. 있는 id를 자른다. 실측한 두 가지다.
+
+        끝을 자름    aks:E0052934:d1f5f9f8a52c
+        가운데를 뺌  aks:E0047404:body:0014
+
+    되돌리지 않으면 RagService가 `unknown chunk_id`로 전체 답변을 죽인다.
+    근거를 많이 줄수록 자주 틀리므로, 깊이 있게(top_k=8)에서 특히 잘 난다.
+    """
+
+    ALLOWED = [
+        "aks:E0052934:d1f5f9f8a52c:definition:0001",
+        "aks:E0047404:1a2b3c4d5e6f:body:0014",
+    ]
+
+    def repair(self, output: dict) -> dict:
+        _repair_chunk_ids(output, list(self.ALLOWED))
+        return output
+
+    def test_exact_ids_are_kept(self):
+        out = self.repair({"candidate_response_type": "answered", "used_chunk_ids": [self.ALLOWED[0]]})
+        self.assertEqual(out["used_chunk_ids"], [self.ALLOWED[0]])
+
+    def test_truncated_tail_is_restored(self):
+        out = self.repair(
+            {"candidate_response_type": "answered", "used_chunk_ids": ["aks:E0052934:d1f5f9f8a52c"]}
+        )
+        self.assertEqual(out["used_chunk_ids"], [self.ALLOWED[0]])
+
+    def test_missing_hash_segment_is_restored(self):
+        out = self.repair(
+            {"candidate_response_type": "answered", "used_chunk_ids": ["aks:E0047404:body:0014"]}
+        )
+        self.assertEqual(out["used_chunk_ids"], [self.ALLOWED[1]])
+
+    def test_ambiguous_prefix_is_dropped(self):
+        """두 조각이 같은 문서에서 나오면 접두사만으로는 무엇인지 알 수 없다."""
+        allowed = ["aks:E1:aaaaaaaaaaaa:body:0001", "aks:E1:aaaaaaaaaaaa:body:0002"]
+        out = {"candidate_response_type": "answered", "used_chunk_ids": ["aks:E1"]}
+        _repair_chunk_ids(out, allowed)
+        self.assertEqual(out["used_chunk_ids"], [])
+
+    def test_answered_without_any_usable_evidence_becomes_insufficient(self):
+        """근거 없는 답변은 내보내지 않는다. 그대로 두면 RagService가 죽는다."""
+        out = self.repair({"candidate_response_type": "answered", "used_chunk_ids": ["없는거"]})
+        self.assertEqual(out["candidate_response_type"], "insufficient_evidence")
+        self.assertEqual(out["used_chunk_ids"], [])
+        self.assertTrue(out["draft_message"].strip())
+
+    def test_answered_with_empty_citations_becomes_insufficient(self):
+        out = self.repair({"candidate_response_type": "answered", "used_chunk_ids": []})
+        self.assertEqual(out["candidate_response_type"], "insufficient_evidence")
+
+    def test_non_answer_types_must_not_cite(self):
+        """계약상 답변이 아닌 응답은 근거를 인용할 수 없다."""
+        for response_type in ("insufficient_evidence", "safety_refusal", "out_of_scope"):
+            with self.subTest(response_type=response_type):
+                out = self.repair(
+                    {"candidate_response_type": response_type, "used_chunk_ids": [self.ALLOWED[0]]}
+                )
+                self.assertEqual(out["used_chunk_ids"], [])
+
+    def test_nested_evidence_fields_are_repaired_too(self):
+        """RagService는 used_chunk_ids만 보지 않는다. 한 곳만 고치면 다른 곳에서 죽는다."""
+        out = self.repair(
+            {
+                "candidate_response_type": "answered",
+                "used_chunk_ids": [self.ALLOWED[0]],
+                "premise_correction": {"source_chunk_ids": ["aks:E0047404:body:0014"]},
+                "clarification": {"options": [{"source_chunk_ids": ["aks:E0052934:d1f5f9f8a52c"]}]},
+                "related_topic_candidates": [{"source_chunk_ids": ["없는거"]}],
+            }
+        )
+        self.assertEqual(out["premise_correction"]["source_chunk_ids"], [self.ALLOWED[1]])
+        self.assertEqual(out["clarification"]["options"][0]["source_chunk_ids"], [self.ALLOWED[0]])
+        self.assertEqual(out["related_topic_candidates"][0]["source_chunk_ids"], [])

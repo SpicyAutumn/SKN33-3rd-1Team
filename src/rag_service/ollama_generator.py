@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import time
 from collections.abc import Callable
 from typing import Any
 
 import requests
 
+
+logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "prompt-baseline-v0-ollama"
 MODEL_OUTPUT_FIELDS = {
@@ -100,7 +104,8 @@ AUDIENCE_PROFILES = {
 - 쉽게 설명보다 배경과 흐름을 분명히 추가한다.""",
     "advanced": """[깊이 있게]
 - 역사에 관심이 많은 사용자를 대상으로 근거에 있는 세부 내용을 구체적으로 설명한다.
-- 검색 문맥에 서로 다른 사실이 6개 이상 있으면 10~16개 문장 또는 2~3개 문단, 500~900자를 작성한다.
+- 10~16개 문장 또는 2~3개 문단, 500~900자를 목표로 한다. 근거가 짧아 채울 수 없으면 지어내지 말고 있는 만큼만 쓴다.
+- 검색 문맥에 주어진 조각을 하나도 흘리지 말고 살핀 뒤, 질문과 이어지는 사실을 모두 답변에 넣는다.
 - 근거에 있는 연도·인물·제도·건물·사건과 그 변천 관계를 빠뜨리지 않고 연결한다.
 - 누가 어떤 건물이나 제도를 마련했는지 문맥의 주어를 그대로 유지하고, 서로 다른 인물의 행동을 합치지 않는다.
 - 일반 설명의 문장을 단순 반복하지 말고, 검색 문맥에서 확인되는 세부 사실과 시대적 흐름을 확장한다.""",
@@ -142,6 +147,113 @@ SYSTEM_PROMPT = """당신은 검색된 역사·문화 문서를 근거로 답변
 
 
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
+
+
+NON_ANSWER_TYPES = ("insufficient_evidence", "safety_refusal", "out_of_scope")
+
+# 청크 id 안의 뜻 없는 해시 마디. 열두 자리 십육진수다.
+_HASH_SEGMENT = re.compile(r"^[0-9a-f]{12}$")
+
+
+def _without_hash(chunk_id: str) -> tuple[str, ...]:
+    """해시 마디를 뺀 나머지 마디들."""
+    return tuple(p for p in chunk_id.split(":") if not _HASH_SEGMENT.match(p))
+
+
+def _repair_one(raw: Any, allowed: list[str]) -> str | None:
+    """모델이 돌려준 chunk_id 하나를 실제 id로 되돌린다. 못 되돌리면 `None`.
+
+    모델은 없는 id를 지어내지 않는다. 있는 id를 **자르**는다. 실측한 예다.
+
+        허용   aks:E0052934:d1f5f9f8a52c:definition:0001
+        반환   aks:E0052934:d1f5f9f8a52c
+
+    id가 콜론 다섯 마디짜리 긴 문자열이라 끝을 놓친다. 근거를 많이 줄수록
+    자주 틀린다. 접두사가 한 곳에만 걸리면 그 id를 뜻한 것이 분명하므로
+    되돌린다. 두 곳 이상에 걸리면 무엇을 가리키는지 알 수 없어 버린다.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    if text in allowed:
+        return text
+    matches = [a for a in allowed if a.startswith(text)]
+    if len(matches) == 1:
+        logger.warning("잘린 chunk_id를 되돌렸다: %r -> %r", text, matches[0])
+        return matches[0]
+    if not matches:
+        # 끝이 아니라 가운데를 빠뜨리기도 한다. 실측한 예다.
+        #
+        #     허용   aks:E0047404:1a2b3c4d5e6f:body:0014
+        #     반환   aks:E0047404:body:0014
+        #
+        # 가운데 마디는 뜻이 없는 해시라 기억하지 못한다. 해시를 뺀 나머지가
+        # 한 곳에만 걸리면 그 id를 뜻한 것이다.
+        skeleton = _without_hash(text)
+        matches = [a for a in allowed if _without_hash(a) == skeleton]
+        if len(matches) == 1:
+            logger.warning("가운데가 빠진 chunk_id를 되돌렸다: %r -> %r", text, matches[0])
+            return matches[0]
+    logger.warning("허용 밖 chunk_id를 버렸다: %r (후보 %d개)", text, len(matches))
+    return None
+
+
+def _repair_list(values: Any, allowed: list[str]) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    repaired: list[str] = []
+    for value in values:
+        fixed = _repair_one(value, allowed)
+        if fixed and fixed not in repaired:
+            repaired.append(fixed)
+    return repaired
+
+
+def _repair_chunk_ids(model_output: dict[str, Any], allowed: list[str]) -> None:
+    """모델 출력 안의 모든 chunk_id를 제자리로 돌려놓는다.
+
+    RagService는 `used_chunk_ids`만이 아니라 `premise_correction`,
+    `clarification.options`, `related_topic_candidates`의 근거 id까지 함께
+    검사한다. 한 곳만 고치면 다른 곳에서 같은 오류가 난다.
+
+    답변이 아닌 응답에서는 근거를 인용하면 안 된다는 것이 계약이다. 모델이
+    이를 어기면 `non-answer responses cannot cite used chunks`로 죽는다.
+    프롬프트에 이미 적어 두었으나 지키지 않을 때가 있어 여기서 비운다.
+    """
+    original = model_output.get("used_chunk_ids")
+    used = _repair_list(original, allowed)
+    response_type = model_output.get("candidate_response_type")
+    if response_type in NON_ANSWER_TYPES and used:
+        logger.warning("답변이 아닌 응답에 붙은 근거 %d건을 비웠다", len(used))
+        used = []
+    elif response_type == "answered" and not used:
+        # 근거 없는 답변이다. 아예 안 댔거나, 댄 것을 하나도 되돌리지 못했다.
+        # 출처 없이 내보내면 화면에 근거 없는 문장만 남고, 그대로 두면
+        # RagService가 `answered responses require at least one used_chunk_id`로
+        # 죽는다. 근거를 못 대면 답하지 않는다는 것이 이 서비스의 규칙이다.
+        logger.warning(
+            "근거 없는 answered를 근거 부족으로 내렸다 (모델이 댄 근거 %d건)",
+            len(original) if isinstance(original, list) else 0,
+        )
+        model_output["candidate_response_type"] = "insufficient_evidence"
+        model_output["draft_message"] = (
+            "현재 확보한 자료에서는 질문에 답할 충분한 근거를 찾지 못했습니다."
+        )
+    model_output["used_chunk_ids"] = used
+
+    correction = model_output.get("premise_correction")
+    if isinstance(correction, dict):
+        correction["source_chunk_ids"] = _repair_list(correction.get("source_chunk_ids"), allowed)
+
+    clarification = model_output.get("clarification")
+    if isinstance(clarification, dict):
+        for option in clarification.get("options") or ():
+            if isinstance(option, dict):
+                option["source_chunk_ids"] = _repair_list(option.get("source_chunk_ids"), allowed)
+
+    for candidate in model_output.get("related_topic_candidates") or ():
+        if isinstance(candidate, dict):
+            candidate["source_chunk_ids"] = _repair_list(candidate.get("source_chunk_ids"), allowed)
 
 
 def _keep_alive_value(raw: str | int | None) -> str | int:
@@ -209,6 +321,10 @@ class OllamaGenerator:
         response = self.transport(f"{self.base_url}/api/chat", payload, self.timeout_seconds)
         elapsed_ms = round((time.perf_counter() - started) * 1000)
         model_output = self._model_output(response)
+        _repair_chunk_ids(
+            model_output,
+            [c["chunk_id"] for c in generation_request["retrieved_contexts"]],
+        )
 
         prompt_tokens = self._non_negative_int(response.get("prompt_eval_count"))
         completion_tokens = self._non_negative_int(response.get("eval_count"))

@@ -138,10 +138,31 @@ def _render_stage(payload: dict) -> None:
                 if st.button(
                     " ",
                     key=f"go-{hit['key']}",
-                    help=f"{hit['title']} — {hit['reason']}",
+                    help=_hover_text(hit),
                 ):
                     _go(hit["document_id"], hit["title"])
                     st.rerun()
+
+
+def _hover_text(hit: dict) -> str:
+    """커서를 올렸을 때 뜨는 말풍선.
+
+    이름만 띄우면 갈지 말지 고를 수가 없다. 지도에 있는 이름은 대부분
+    처음 보는 것이라, 눌러 봐야 무엇인지 알게 되는 화면이었다. 설명 한 줄을
+    먼저 보여 주고, 더 보고 싶으면 누르게 한다.
+    """
+    lines = [f"**{hit['title']}**"]
+    facts = " · ".join(
+        v for v in (hit.get("period"), hit.get("field"), hit.get("item_type")) if v
+    )
+    if facts:
+        lines.append(facts)
+    if hit.get("summary"):
+        lines.append(hit["summary"])
+    if hit.get("reason"):
+        lines.append(f"_{hit['reason']}_")
+    lines.append("눌러서 이 유산으로 옮겨 갑니다.")
+    return "\n\n".join(lines)
 
 
 def _render_trail(searched) -> None:

@@ -204,6 +204,10 @@ def render(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
                     "document_id": str(node.get("document_id", "")),
                     "title": str(node.get("title", "")),
                     "reason": str(node.get("reason", "")),
+                    "summary": str(node.get("summary", "")),
+                    "period": str(node.get("period", "")),
+                    "field": str(node.get("field", "")),
+                    "item_type": str(node.get("item_type", "")),
                     "left": dot_x / WIDTH * 100,
                     "top": row_y / HEIGHT * 100,
                 }

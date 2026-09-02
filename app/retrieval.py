@@ -124,6 +124,12 @@ def answer(
       {response, retrieved_contexts, used_chunk_ids, retrieval_top_k}
     """
     service = get_service()
+    # 여기가 요청의 경계다. 서비스는 캐시되어 계속 살아 있으므로, 요청마다
+    # 근거 판정기의 지난 판단을 지워 준다. 남겨 두면 같은 질문을 두 번째
+    # 물었을 때 곧바로 근거 부족으로 막힌다.
+    checker = getattr(service, "evidence_checker", None)
+    if hasattr(checker, "begin_request"):
+        checker.begin_request()
     if retrieved_contexts is not None:
         service = _service_with_contexts(service, retrieved_contexts)
     return service.answer_with_trace(

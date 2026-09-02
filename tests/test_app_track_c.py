@@ -663,6 +663,85 @@ class ScopeCheckerTest(unittest.TestCase):
         """빈 질문은 RagService가 먼저 거른다. 범위 판정이 대신 막지 않는다."""
         self.assertTrue(self.checker.is_in_scope(""))
 
+    # 차단어가 다른 낱말 안에 묻혀 있을 뿐인 질문들. 글자 포함 여부로 보던 때는
+    # 전부 막혔다. 고분군·석탑·굿·민요는 이 서비스의 한복판이다. (PR #25 리뷰)
+    BURIED = [
+        ("중금리 삼층석탑에 대해 알려줘", "금리"),
+        ("부여 상금리 고분군은 어떤 유적이야", "금리"),
+        ("경주 오금리 고분군 설명해줘", "금리"),
+        ("권주가는 어떤 노래야", "주가"),
+        ("마마배송굿에 대해 알려줘", "배송"),
+        ("별사시세탄이 뭐야", "시세"),
+        ("올해 강강수월래 행사는 어떤 의미야", "강수"),
+        ("동양척식주식회사는 지금 어떻게 됐어", "주식"),
+        ("정약용의 거주가 어디였나요?", "주가"),
+        ("금리자유화가 무엇인가요?", "금리"),
+    ]
+
+    def test_terms_buried_inside_other_words_do_not_block(self):
+        for question, term in self.BURIED:
+            with self.subTest(question=question, term=term):
+                self.assertIn(term, question)
+                self.assertTrue(self.checker.is_in_scope(question))
+
+    def test_encyclopedia_entries_that_are_the_term_still_pass(self):
+        """`배송`은 불교 의례, `강수`는 전통 인물, `분양가 상한제`는 제도 항목이다.
+
+        표제어 그 자체를 물었을 때까지 막으면 있는 항목을 못 묻게 된다.
+        """
+        for question in (
+            "배송은 어떤 불교 의례인가요?",
+            "강수는 어떤 인물인가요?",
+            "분양가 상한제는 무엇인가요?",
+            "현재 경복궁의 면적은 얼마인가요?",
+        ):
+            with self.subTest(question=question):
+                self.assertTrue(self.checker.is_in_scope(question))
+
+    def test_live_values_are_still_blocked(self):
+        """어절로 봐도 원래 막으려던 것은 그대로 막힌다."""
+        for question in (
+            "현대자동차 주가 알려줘",
+            "오늘 코스피 얼마야",
+            "파이썬으로 정렬 코드 짜줘",
+            "아이폰 최신 모델 가격 알려줘",
+            "지금 주문한 물건 배송 어디쯤이야",
+            "지금 환율 얼마야",
+        ):
+            with self.subTest(question=question):
+                self.assertFalse(self.checker.is_in_scope(question))
+
+
+class EvidenceCheckerStateTest(unittest.TestCase):
+    """근거 판정 상태는 요청 안에서만 산다. (PR #25 리뷰)
+
+    RagService는 생성기가 근거 부족을 내면 같은 근거로 한 번 더 물어본다.
+    그 재질의를 알아보려고 판정기가 직전 판단을 기억하는데, 요청이 끝나도
+    남아 있으면 같은 질문을 두 번째 할 때 곧바로 막힌다.
+    """
+
+    CONTEXTS = [{"chunk_id": "aks:E1:body:0001", "content": "경복궁은 조선의 법궁이다."}]
+
+    def setUp(self):
+        self.checker = rag_client.ContentEvidenceChecker()
+
+    def test_same_question_asked_again_is_not_blocked(self):
+        decisions = []
+        for _ in range(3):
+            self.checker.begin_request()
+            decisions.append(self.checker.decide("경복궁은?", self.CONTEXTS))
+        self.assertEqual(decisions, ["sufficient"] * 3)
+
+    def test_regeneration_within_one_request_follows_the_generator(self):
+        """한 요청 안에서 다시 물어오면 생성기 판단을 따른다."""
+        self.checker.begin_request()
+        self.assertEqual(self.checker.decide("경복궁은?", self.CONTEXTS), "sufficient")
+        self.assertEqual(self.checker.decide("경복궁은?", self.CONTEXTS), "insufficient")
+
+    def test_empty_contexts_are_insufficient(self):
+        self.checker.begin_request()
+        self.assertEqual(self.checker.decide("경복궁은?", []), "insufficient")
+
 class AnswerMetricsTest(unittest.TestCase):
     """평가 탭에는 답변 층 지표만 둔다 (PR #28)."""
 

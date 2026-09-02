@@ -160,16 +160,52 @@ def compound_clarification(question: str) -> dict[str, Any]:
 # 값은 어느 시점의 백과사전에도 들어 있지 않다. 검색은 성공할 수 있어서
 # 점수로는 걸러지지 않는다. `현대자동차㈜`도 `서울특별시`도 실제 항목이다.
 NEVER_IN_SOURCE = (
-    "주가", "시세", "환율", "코스피", "코스닥", "시가총액", "금리", "분양가",
-    "항공권", "예매", "배송", "맛집", "실시간",
+    "주가", "시세", "환율", "코스피", "코스닥", "시가총액", "금리",
+    "항공권", "예매", "맛집", "실시간",
     "파이썬", "자바스크립트", "코딩", "소스코드", "프로그래밍",
     "번역해", "레시피",
 )
 
-# 아래 낱말은 백과사전에도 나온다. `조선시대 날씨 기록`은 답할 수 있는 질문이다.
-# 지금 시점을 묻는 표시가 함께 있을 때만 범위 밖으로 본다.
-LIVE_ONLY = ("날씨", "기온", "강수", "미세먼지", "주식", "가격", "얼마")
-NOW_MARKERS = ("오늘", "지금", "현재", "요즘", "내일", "이번 주", "올해")
+# 아래 낱말은 백과사전 표제어이기도 하다. `조선시대 날씨 기록`은 답할 수 있고,
+# `강수`·`기온`은 전통 인물, `주식`은 고려 관직, `배송`은 불교 의례,
+# `분양가 상한제`는 제도 항목이다. 지금을 묻는 표시가 함께 있을 때만 막는다.
+LIVE_ONLY = ("날씨", "기온", "강수", "미세먼지", "주식", "가격", "배송", "분양가")
+NOW_MARKERS = ("오늘", "지금", "현재", "요즘", "내일", "이번 주", "올해", "최신")
+
+# 낱말 뒤에 이만큼 붙어도 같은 낱말로 본다. 조사와 흔한 종결·명령 어미다.
+# 목록 밖의 글자가 붙으면 다른 낱말로 본다. `주가`와 `주가교`, `금리`와
+# `금리자유화`를 가르는 것이 이 목록이다.
+TERM_TAILS = frozenset((
+    "", "은", "는", "이", "가", "을", "를", "의", "에", "에서", "에게",
+    "으로", "로", "와", "과", "도", "만", "부터", "까지", "나", "이나",
+    "라도", "처럼", "보다", "밖에", "조차", "마저", "요", "란", "이란",
+    "야", "이야", "인가", "인가요", "인지", "입니까", "입니다", "냐", "니",
+    "줘", "해줘", "주세요", "해주세요", "알려줘", "한다", "했다",
+))
+
+# 어절 양 끝에서 떼어 낼 문장 부호.
+TERM_PUNCTUATION = "·,.?!\"'()[]{}<>「」『』…~-"
+
+
+def mentions_term(question: str, terms: tuple[str, ...]) -> bool:
+    """질문이 그 낱말을 실제로 말하고 있는지 본다.
+
+    글자가 들어 있는지만 보면 안 된다. `중금리 삼층석탑`이 `금리`로,
+    `권주가`가 `주가`로, `마마배송굿`이 `배송`으로, `강강수월래`가
+    `강수`로 막혔다. 고분군·석탑·굿은 이 서비스의 한복판이다.
+
+    그래서 어절 단위로 본다. 어절이 그 낱말로 시작하고, 뒤에 붙은 것이
+    조사나 어미일 때만 같은 낱말로 친다. 막으려던 `현대자동차 주가`,
+    `파이썬으로 코드 짜줘`는 그대로 막힌다.
+    """
+    for raw in str(question or "").split():
+        word = raw.strip(TERM_PUNCTUATION)
+        if not word:
+            continue
+        for term in terms:
+            if word.startswith(term) and word[len(term):] in TERM_TAILS:
+                return True
+    return False
 
 
 class TopicScopeChecker:
@@ -189,10 +225,9 @@ class TopicScopeChecker:
     """
 
     def is_in_scope(self, question: str) -> bool:
-        text = str(question or "")
-        if any(term in text for term in NEVER_IN_SOURCE):
+        if mentions_term(question, NEVER_IN_SOURCE):
             return False
-        if any(term in text for term in LIVE_ONLY) and any(m in text for m in NOW_MARKERS):
+        if mentions_term(question, LIVE_ONLY) and mentions_term(question, NOW_MARKERS):
             return False
         return True
 
@@ -214,6 +249,16 @@ class ContentEvidenceChecker:
 
     def __init__(self) -> None:
         self._approved: tuple[str, tuple[str, ...]] | None = None
+
+    def begin_request(self) -> None:
+        """새 요청이 시작됐다. 지난 요청의 판단은 버린다.
+
+        이 상태는 한 요청 안에서 RagService가 같은 근거로 두 번 물어볼 때만
+        쓰라고 둔 것이다. 요청 사이에 남겨 두면 같은 질문을 두 번째 할 때
+        곧바로 `insufficient`가 나와 멀쩡한 답변이 막힌다. 설명 수준만
+        바꿔 다시 물어도 마찬가지다. 서비스 객체는 캐시되어 계속 살아 있다.
+        """
+        self._approved = None
 
     def decide(self, question: str, contexts: list[dict[str, Any]]) -> str:
         usable = [c for c in contexts if str(c.get("content", "")).strip()]

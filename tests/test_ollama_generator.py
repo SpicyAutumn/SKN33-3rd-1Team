@@ -6,6 +6,7 @@ import unittest
 from rag_service.ollama_generator import (
     OllamaGenerator,
     _keep_alive_value,
+    _normalize_corrected_premise,
     _repair_chunk_ids,
 )
 
@@ -59,7 +60,7 @@ class OllamaGeneratorTest(unittest.TestCase):
                         {
                             "candidate_response_type": "answered",
                             "draft_message": "경복궁은 1395년에 완성되었습니다.",
-                            "used_chunk_ids": [CONTEXT["chunk_id"]],
+                            "used_chunk_ids": ["CTX-1"],
                             "clarification": None,
                             "premise_correction": None,
                             "related_topic_candidates": [],
@@ -87,12 +88,58 @@ class OllamaGeneratorTest(unittest.TestCase):
         self.assertEqual(captured["payload"]["options"]["temperature"], 0.0)
         self.assertEqual(captured["payload"]["options"]["num_predict"], 640)
         self.assertIn(CONTEXT["content"], captured["payload"]["messages"][1]["content"])
+        self.assertIn('"context_ref":"CTX-1"', captured["payload"]["messages"][1]["content"])
+        self.assertNotIn(CONTEXT["chunk_id"], captured["payload"]["messages"][1]["content"])
         self.assertIn("5~8개 문장", captured["payload"]["messages"][1]["content"])
         self.assertEqual(result["request_id"], "REQ-1")
         self.assertEqual(result["audience_level"], "general")
         self.assertEqual(result["used_chunk_ids"], [CONTEXT["chunk_id"]])
         self.assertEqual(result["generation_metadata"]["model_id"], "qwen3:8b")
         self.assertEqual(result["generation_metadata"]["token_usage"]["total_tokens"], 150)
+
+    def test_restores_context_refs_in_nested_contract_fields(self) -> None:
+        def transport(url: str, payload: dict, timeout: float) -> dict:
+            return {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "candidate_response_type": "corrected_premise",
+                            "draft_message": "1394년에 완성된 것이 아니라 1395년에 완성되었습니다.",
+                            "used_chunk_ids": [],
+                            "clarification": None,
+                            "premise_correction": {
+                                "original_premise": "1394년에 완성",
+                                "corrected_premise": "1395년에 완성",
+                                "source_chunk_ids": ["CTX-1"],
+                            },
+                            "related_topic_candidates": [],
+                        },
+                        ensure_ascii=False,
+                    )
+                }
+            }
+
+        result = OllamaGenerator(
+            base_url="https://pod.example",
+            transport=transport,
+        ).invoke(generation_request())
+
+        self.assertEqual(
+            result["premise_correction"]["source_chunk_ids"],
+            [CONTEXT["chunk_id"]],
+        )
+
+    def test_keeps_unknown_context_ref_for_service_validation(self) -> None:
+        output = {
+            "candidate_response_type": "answered",
+            "draft_message": "답변",
+            "used_chunk_ids": ["CTX-999"],
+            "clarification": None,
+            "premise_correction": None,
+            "related_topic_candidates": [],
+        }
+        restored = OllamaGenerator._restore_context_ids(output, {"CTX-1": CONTEXT["chunk_id"]})
+        self.assertEqual(restored["used_chunk_ids"], ["CTX-999"])
 
     def test_keep_alive_can_be_overridden(self) -> None:
         captured: dict = {}
@@ -268,3 +315,112 @@ class ChunkIdRepairTest(unittest.TestCase):
         self.assertEqual(out["premise_correction"]["source_chunk_ids"], [self.ALLOWED[1]])
         self.assertEqual(out["clarification"]["options"][0]["source_chunk_ids"], [self.ALLOWED[0]])
         self.assertEqual(out["related_topic_candidates"][0]["source_chunk_ids"], [])
+
+
+class ResponseTypeNormalizationTest(unittest.TestCase):
+    def test_answer_that_explicitly_corrects_assertion_becomes_corrected_premise(self):
+        output = {
+            "candidate_response_type": "answered",
+            "draft_message": "길쌈노래는 민요이며 판소리와는 다른 장르로 분류됩니다.",
+            "used_chunk_ids": [CONTEXT["chunk_id"]],
+            "clarification": None,
+            "premise_correction": None,
+            "related_topic_candidates": [],
+        }
+
+        _normalize_corrected_premise(output, "길쌈노래는 판소리 작품이지?")
+
+        self.assertEqual(output["candidate_response_type"], "corrected_premise")
+        self.assertEqual(
+            output["premise_correction"]["source_chunk_ids"],
+            [CONTEXT["chunk_id"]],
+        )
+
+    def test_answer_that_states_question_year_was_wrong_becomes_corrected_premise(self):
+        output = {
+            "candidate_response_type": "answered",
+            "draft_message": (
+                "지봉유설은 1614년에 편찬한 책입니다. "
+                "질문에서 언급된 연도가 1615년으로 되어 있지만 실제 편찬 연도는 1614년입니다."
+            ),
+            "used_chunk_ids": [CONTEXT["chunk_id"]],
+            "clarification": None,
+            "premise_correction": None,
+            "related_topic_candidates": [],
+        }
+
+        _normalize_corrected_premise(output, "지봉유설은 1615년에 편찬한 책이지?")
+
+        self.assertEqual(output["candidate_response_type"], "corrected_premise")
+        self.assertFalse(output["draft_message"].startswith("네, 맞습니다"))
+        self.assertEqual(
+            output["premise_correction"]["corrected_premise"],
+            "지봉유설은 1614년에 편찬한 책입니다.",
+        )
+
+    def test_valid_correction_detail_overrides_inconsistent_insufficient_type(self):
+        output = {
+            "candidate_response_type": "insufficient_evidence",
+            "draft_message": "상대별곡의 작자는 이색이 아니라 권근입니다.",
+            "used_chunk_ids": [],
+            "clarification": None,
+            "premise_correction": {
+                "original_premise": "이색이 지음",
+                "corrected_premise": "권근이 지음",
+                "source_chunk_ids": [CONTEXT["chunk_id"]],
+            },
+            "related_topic_candidates": [],
+        }
+
+        _normalize_corrected_premise(output, "상대별곡은 이색이 지은 경기체가 맞지?")
+
+        self.assertEqual(output["candidate_response_type"], "corrected_premise")
+        self.assertIsNotNone(output["premise_correction"])
+
+    def test_insufficient_label_with_explicit_correction_and_evidence_is_promoted(self):
+        output = {
+            "candidate_response_type": "insufficient_evidence",
+            "draft_message": "상대별곡은 이색이 아닌 권근이 지은 경기체가로 확인됩니다.",
+            "used_chunk_ids": [CONTEXT["chunk_id"]],
+            "clarification": None,
+            "premise_correction": None,
+            "related_topic_candidates": [],
+        }
+
+        _normalize_corrected_premise(output, "상대별곡은 이색이 지은 경기체가 맞지?")
+
+        self.assertEqual(output["candidate_response_type"], "corrected_premise")
+        self.assertEqual(
+            output["premise_correction"]["source_chunk_ids"],
+            [CONTEXT["chunk_id"]],
+        )
+
+    def test_non_answer_clears_incompatible_detail_fields(self):
+        output = {
+            "candidate_response_type": "insufficient_evidence",
+            "draft_message": "근거가 부족합니다.",
+            "used_chunk_ids": [],
+            "clarification": {"reason_code": "wrong", "question": "질문", "options": []},
+            "premise_correction": {"source_chunk_ids": []},
+            "related_topic_candidates": [],
+        }
+
+        _normalize_corrected_premise(output, "질문")
+
+        self.assertIsNone(output["clarification"])
+        self.assertIsNone(output["premise_correction"])
+
+    def test_plain_answer_with_negative_sentence_is_not_reclassified(self):
+        output = {
+            "candidate_response_type": "answered",
+            "draft_message": "경복궁은 서울에 있으며 다른 지역의 궁궐이 아닙니다.",
+            "used_chunk_ids": [CONTEXT["chunk_id"]],
+            "clarification": None,
+            "premise_correction": None,
+            "related_topic_candidates": [],
+        }
+
+        _normalize_corrected_premise(output, "경복궁은 어디에 있어?")
+
+        self.assertEqual(output["candidate_response_type"], "answered")
+        self.assertIsNone(output["premise_correction"])

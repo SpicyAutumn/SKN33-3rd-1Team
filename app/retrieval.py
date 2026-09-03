@@ -58,6 +58,7 @@ def _service_with_contexts(service: RagService, contexts: list[dict[str, Any]]) 
     )
 
 
+
 # 화면에 적는 점수 이름. 임베딩 코사인 유사도이지 최종 순위 점수가 아니다.
 SCORE_NAME = "의미 유사도"
 

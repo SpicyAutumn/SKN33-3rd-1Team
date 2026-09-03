@@ -1,4 +1,4 @@
-"""탐험 지도의 데이터 계층.
+"""문화유산 네트워크의 데이터 계층.
 
 이번 질문의 검색 결과만으로는 지도를 그릴 수 없다. `top_k`가 3이라 이어 붙일
 항목이 많아야 둘이다. 75,835건 가운데 3건만 보고 지도를 그리는 셈이었다.
@@ -55,6 +55,10 @@ HERITAGE_TYPES = (
 
 # 뿌리 문서를 설명할 때 보여 줄 길이.
 SUMMARY_LIMIT = 220
+
+# 지도 위 항목에 커서를 올렸을 때 보여 줄 설명 길이. 뿌리 카드보다 짧게 둔다.
+# 말풍선은 읽으려고 멈추는 곳이 아니라 갈지 말지 고르는 곳이다.
+NODE_SUMMARY_LIMIT = 110
 
 # 지역 후보를 Pinecone 필터에 실을 최대 개수. `서울`은 200건이 넘는다.
 REGION_CANDIDATE_CAP = 200
@@ -281,6 +285,7 @@ class Neighbors:
         self._retriever = retriever
         self._anchors: dict[str, str | None] = {}
         self._summaries: dict[str, str] = {}
+        self._definitions: set[str] = set()
 
     def anchor(self, document_id: str) -> str | None:
         """뿌리 문서를 대표할 청크 id.
@@ -307,15 +312,54 @@ class Neighbors:
         chosen = definition["id"] if definition else None
         # 같은 조회로 설명 문장까지 가져온다. 따로 부르면 왕복이 한 번 더 는다.
         if definition:
-            text = _clean((definition.get("metadata") or {}).get("content"))
-            if text:
-                self._summaries[document_id] = text
+            self._remember_summary(document_id, definition.get("metadata") or {})
         self._anchors[document_id] = chosen
         return chosen
 
     def summary(self, document_id: str) -> str:
-        """뿌리 문서의 설명 문장. `anchor()`를 부른 뒤에 값이 생긴다."""
+        """그 문서의 설명 문장. 아직 받아 오지 않았으면 빈 문자열."""
         return self._summaries.get(document_id, "")
+
+    def _remember_summary(self, document_id: str, metadata: dict[str, Any]) -> None:
+        """정의 문단을 우선해 설명을 기억한다. 이미 정의를 잡았으면 덮지 않는다."""
+        text = _clean(metadata.get("content"))
+        if not text:
+            return
+        is_definition = _clean(metadata.get("section")) == "definition"
+        if document_id in self._definitions and not is_definition:
+            return
+        if is_definition:
+            self._definitions.add(document_id)
+        self._summaries.setdefault(document_id, text)
+        if is_definition:
+            self._summaries[document_id] = text
+
+    def load_summaries(self, document_ids: Iterable[str]) -> None:
+        """아직 설명이 없는 문서들의 설명을 한 번의 조회로 채운다.
+
+        가지마다 따로 부르면 왕복이 대여섯 번이 된다. `딸린 유산`과 `지역`
+        가지는 만든 목록에서 나오므로 검색을 거치지 않아 설명이 비어 있다.
+        그 문서들만 모아 `$in`으로 한 번에 가져온다.
+        """
+        wanted = [d for d in dict.fromkeys(document_ids) if d and d not in self._summaries]
+        if not wanted:
+            return
+        try:
+            response = self._retriever._index.query(
+                vector=[0.0] * 1536,
+                top_k=len(wanted) * 3,
+                include_metadata=True,
+                namespace=self._retriever.namespace,
+                filter={"document_id": {"$in": wanted}},
+            )
+        except Exception:  # noqa: BLE001
+            # 설명이 없어도 지도는 그려진다. 이름과 분류만 보여 주면 된다.
+            return
+        for match in response.get("matches", []):
+            metadata = match.get("metadata") or {}
+            document_id = _clean(metadata.get("document_id"))
+            if document_id:
+                self._remember_summary(document_id, metadata)
 
     def search(
         self,
@@ -341,6 +385,7 @@ class Neighbors:
             document_id = _clean(metadata.get("document_id"))
             if not document_id or document_id in excluded:
                 continue
+            self._remember_summary(document_id, metadata)
             score = float(match.get("score") or 0.0)
             if score > best.get(document_id, -1.0):
                 best[document_id] = score
@@ -357,11 +402,17 @@ def build_neighbors() -> Neighbors | None:
     return Neighbors(PineconeRetriever())
 
 
+def _shorten(text: str, limit: int) -> str:
+    text = text.strip()
+    return (text[:limit].rstrip() + "…") if len(text) > limit else text
+
+
 def _node(entry: Entry, reason: str) -> dict[str, Any]:
     return {
         "document_id": entry.document_id,
         "title": entry.title,
         "reason": reason,
+        "summary": "",
         "period": entry.period,
         "field": entry.field,
         "item_type": entry.item_type,
@@ -548,12 +599,21 @@ def build_map(
             ],
         )
 
+    # 커서를 올렸을 때 보여 줄 설명. 가지를 다 세운 뒤 한 번에 채운다.
+    if neighbors is not None:
+        nodes = [n for branch in branches for n in branch["nodes"]]
+        neighbors.load_summaries(n["document_id"] for n in nodes)
+        for node in nodes:
+            node["summary"] = _shorten(
+                neighbors.summary(node["document_id"]), NODE_SUMMARY_LIMIT
+            )
+
     return {
         "root": {
             "document_id": root.document_id,
             "title": root.title,
             "fields": root.summary_fields(),
-            "summary": (summary[:SUMMARY_LIMIT].rstrip() + "…") if len(summary) > SUMMARY_LIMIT else summary,
+            "summary": _shorten(summary, SUMMARY_LIMIT),
             "source_url": root.source_url,
         },
         "branches": branches,

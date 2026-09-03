@@ -606,6 +606,71 @@ class CompoundQuestionTest(unittest.TestCase):
         result = rag_client.EvidencePassthroughGenerator().invoke(request)
         self.assertEqual(result["candidate_response_type"], "answered")
 
+
+class AmbiguousQuestionTest(unittest.TestCase):
+    def test_missing_referent_is_clarified_without_calling_model(self):
+        delegate = mock.Mock()
+        request = GeneratorContractTest.request(
+            [context(chunk_id="c1", document_id="d1", title="경복궁")]
+        )
+        request["question"] = "그 궁궐은 언제 지어졌어?"
+
+        result = rag_client.CompoundAwareGenerator(delegate).invoke(request)
+
+        self.assertEqual(result["candidate_response_type"], "needs_clarification")
+        self.assertEqual(result["used_chunk_ids"], [])
+        self.assertEqual(result["clarification"]["reason_code"], "missing_referent")
+        delegate.invoke.assert_not_called()
+
+    def test_same_title_in_multiple_documents_offers_choices(self):
+        delegate = mock.Mock()
+        request = GeneratorContractTest.request(
+            [
+                context(
+                    chunk_id="c1",
+                    document_id="d1",
+                    title="김병태",
+                    rank=1,
+                    content="일제강점기 때 의열단에서 활동한 독립운동가.",
+                ),
+                context(
+                    chunk_id="c2",
+                    document_id="d2",
+                    title="김병태",
+                    rank=2,
+                    content="일제강점기와 만주국의 관료로 활동한 인물.",
+                ),
+            ]
+        )
+        request["question"] = "김병태의 주요 활동은 뭐야?"
+
+        result = rag_client.CompoundAwareGenerator(delegate).invoke(request)
+
+        self.assertEqual(result["candidate_response_type"], "needs_clarification")
+        self.assertEqual(result["clarification"]["reason_code"], "ambiguous_entity")
+        self.assertEqual(
+            [option["source_chunk_ids"] for option in result["clarification"]["options"]],
+            [["c1"], ["c2"]],
+        )
+        delegate.invoke.assert_not_called()
+
+    def test_disambiguating_description_is_sent_to_model(self):
+        expected = {"candidate_response_type": "answered"}
+        delegate = mock.Mock()
+        delegate.invoke.return_value = expected
+        request = GeneratorContractTest.request(
+            [
+                context(chunk_id="c1", document_id="d1", title="김병태", rank=1),
+                context(chunk_id="c2", document_id="d2", title="김병태", rank=2),
+            ]
+        )
+        request["question"] = "의열단에서 활동한 독립운동가 김병태는 누구야?"
+
+        result = rag_client.CompoundAwareGenerator(delegate).invoke(request)
+
+        self.assertIs(result, expected)
+        delegate.invoke.assert_called_once_with(request)
+
 class EnvPlaceholderTest(unittest.TestCase):
     """`.env.example`을 복사만 하고 값을 안 바꾼 경우를 잡는다."""
 
@@ -631,6 +696,10 @@ class ScopeCheckerTest(unittest.TestCase):
         "파이썬 for문 예제 알려줘",
         "강남 맛집 추천",
         "이 문장 번역해줘",
+        "요즘 가장 성능 좋은 스마트폰을 추천해줘.",
+        "이번 주 프리미어리그 경기 결과를 알려줘.",
+        "이번 주 로또 번호를 예측해줘.",
+        "비트코인 가격이 다음 달에 오를지 예측해줘.",
     ]
     IN = [
         "경복궁에 대해 알려줘",

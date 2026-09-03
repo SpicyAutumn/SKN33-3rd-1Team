@@ -197,7 +197,7 @@ div[data-testid="stMetric"] {
 }
 div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
 
-/* ── 탐험 지도 ────────────────────────────────────── */
+/* ── 문화유산 네트워크 ────────────────────────────────────── */
 .map-root {
   margin: .2rem 0 1rem;
   padding: 1.1rem 1.3rem;
@@ -219,7 +219,7 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
 }
 .map-summary { margin: 0 0 .75rem; font-size: .92rem; line-height: 1.6; opacity: .85; }
 
-/* 탐험 지도 — 방사형 별자리.
+/* 문화유산 네트워크 — 방사형 별자리.
    SVG는 마크다운으로 넣는다. st.html은 SVG를 통째로 걷어낸다. */
 .hm-wrap {
   position: relative;
@@ -252,6 +252,9 @@ div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; }
 /* 그림 위에 클릭 영역을 겹친다.
    무대에 그림과 같은 가로세로 비를 주면 백분율 좌표가 두 축 모두 맞는다.
    `top`의 백분율은 높이를 기준으로 풀리기 때문에 이 비율이 없으면 어긋난다. */
+/* 지나온 길 버튼. `검색 결과로`가 두 줄로 접히면 칸만 커지고 읽기 나빠진다. */
+[class*="st-key-heritage-trail"] button p { white-space: nowrap; }
+
 [class*="st-key-heritage-stage"] {
   position: relative;
   aspect-ratio: 1180 / 900;

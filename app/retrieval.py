@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import replace
 from functools import lru_cache
 from typing import Any
 
@@ -58,34 +57,6 @@ def _service_with_contexts(service: RagService, contexts: list[dict[str, Any]]) 
         config=service.config,
     )
 
-
-# 설명 수준별로 가져올 근거 조각 수.
-#
-# `깊이 있게`가 `일반 설명`과 거의 같은 글이 나왔다. 실측해 보니 토큰 한도에
-# 걸린 게 아니라(셋 다 finish_reason=stop) 쓸 재료가 없어서였다. top_k가 3이라
-# 세 조각뿐이고, 그나마 같은 문서에서 나온 조각이 겹친다. 근거에 없는 말을
-# 지어내지 않는 것이 최우선 규칙이니 재료가 적으면 길게 쓸 수가 없다.
-#
-# 그래서 깊이 있게를 고르면 근거를 더 가져온다. 프롬프트만 고쳐서는 안 된다.
-AUDIENCE_TOP_K = {"easy": 3, "general": 3, "advanced": 8}
-
-
-def top_k_for(audience_level: str) -> int:
-    """그 설명 수준에서 가져올 근거 조각 수."""
-    return AUDIENCE_TOP_K.get(audience_level, get_service().config.top_k)
-
-
-def _service_with_top_k(service: RagService, top_k: int) -> RagService:
-    """검색 개수만 바꾼 서비스. 나머지 구성은 그대로 쓴다."""
-    if top_k == service.config.top_k:
-        return service
-    return RagService(
-        retriever=service.retriever,
-        generator=service.generator,
-        evidence_checker=service.evidence_checker,
-        scope_checker=service.scope_checker,
-        config=replace(service.config, top_k=top_k),
-    )
 
 
 # 화면에 적는 점수 이름. 임베딩 코사인 유사도이지 최종 순위 점수가 아니다.
@@ -160,13 +131,8 @@ def answer(
     checker = getattr(service, "evidence_checker", None)
     if hasattr(checker, "begin_request"):
         checker.begin_request()
-    wanted = top_k_for(audience_level)
-    if retrieved_contexts is not None and len(retrieved_contexts) >= wanted:
-        # 설명 수준만 바꾼 재질문이다. 이미 있는 근거로 충분하면 다시 찾지 않는다.
+    if retrieved_contexts is not None:
         service = _service_with_contexts(service, retrieved_contexts)
-    else:
-        # `일반 설명`에서 `깊이 있게`로 옮기면 가진 근거가 모자란다. 다시 찾는다.
-        service = _service_with_top_k(service, wanted)
     return service.answer_with_trace(
         question,
         audience_level=audience_level,

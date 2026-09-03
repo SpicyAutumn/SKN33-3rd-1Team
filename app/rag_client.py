@@ -164,13 +164,20 @@ NEVER_IN_SOURCE = (
     "항공권", "예매", "맛집", "실시간",
     "파이썬", "자바스크립트", "코딩", "소스코드", "프로그래밍",
     "번역해", "레시피",
+    # 평가 질문에서 실제로 검색을 통과해 백과사전 문맥으로 답을 만들어 낸 항목들.
+    # 현재·미래의 제품, 스포츠, 복권, 가상자산 정보는 이 문서 모음으로
+    # 확인할 수 없으므로 검색 점수와 무관하게 범위 밖이다.
+    "스마트폰", "프리미어리그", "로또", "비트코인", "암호화폐", "가상자산",
 )
 
 # 아래 낱말은 백과사전 표제어이기도 하다. `조선시대 날씨 기록`은 답할 수 있고,
 # `강수`·`기온`은 전통 인물, `주식`은 고려 관직, `배송`은 불교 의례,
 # `분양가 상한제`는 제도 항목이다. 지금을 묻는 표시가 함께 있을 때만 막는다.
 LIVE_ONLY = ("날씨", "기온", "강수", "미세먼지", "주식", "가격", "배송", "분양가")
-NOW_MARKERS = ("오늘", "지금", "현재", "요즘", "내일", "이번 주", "올해", "최신")
+NOW_MARKERS = (
+    "오늘", "지금", "현재", "요즘", "내일", "이번 주", "다음 주",
+    "이번 달", "다음 달", "올해", "최신",
+)
 
 # 낱말 뒤에 이만큼 붙어도 같은 낱말로 본다. 조사와 흔한 종결·명령 어미다.
 # 목록 밖의 글자가 붙으면 다른 낱말로 본다. `주가`와 `주가교`, `금리`와
@@ -342,15 +349,104 @@ class EvidencePassthroughGenerator:
         }
 
 
+AMBIGUOUS_REFERENCE_LABELS = {
+    "궁궐": "어떤 궁궐을 말씀하시나요? 궁궐 이름을 포함해 다시 질문해 주세요.",
+    "노래": "어떤 노래를 말씀하시나요? 노래 제목을 포함해 다시 질문해 주세요.",
+    "책": "어떤 책을 말씀하시나요? 책 제목을 포함해 다시 질문해 주세요.",
+    "성": "어떤 성을 말씀하시나요? 성의 이름을 포함해 다시 질문해 주세요.",
+    "관청": "어떤 관청을 말씀하시나요? 관청 이름을 포함해 다시 질문해 주세요.",
+}
+
+
+def ambiguous_reference_clarification(question: str) -> dict[str, Any] | None:
+    """앞 대화 없이 `그 궁궐`처럼 대상을 알 수 없는 질문을 찾는다.
+
+    대화 이력이 없는 첫 질문에서는 검색 결과가 무엇이든 사용자가 가리킨
+    대상을 확정할 수 없다. 모델이 검색 1위를 임의로 고르기 전에 한 번만
+    다시 물어보는 것이 계약의 `needs_clarification` 의미와 맞다.
+    """
+    for noun, prompt in AMBIGUOUS_REFERENCE_LABELS.items():
+        if re.search(rf"(?:^|\s)그\s*{re.escape(noun)}(?:은|는|이|가|을|를|의|도|에서)?(?:\s|$)", question):
+            return {
+                "reason_code": "missing_referent",
+                "question": prompt,
+                "options": [],
+            }
+    return None
+
+
+def _is_generic_title_question(question: str, title: str) -> bool:
+    """동명이인을 구분할 정보 없이 이름만 물었는지 보수적으로 판정한다."""
+    escaped = re.escape(title)
+    patterns = (
+        rf"^\s*{escaped}(?:은|는|이|가)?\s*누구(?:야|인가요|니|입니까)?\s*[?.!]?\s*$",
+        rf"^\s*{escaped}의?\s*주요\s*활동(?:은|이)?\s*(?:뭐|무엇)(?:야|인가요|입니까)?\s*[?.!]?\s*$",
+        rf"^\s*{escaped}(?:은|는|이|가)?\s*어떤\s*(?:사람|인물)(?:이야|인가요|입니까)?\s*[?.!]?\s*$",
+    )
+    return any(re.match(pattern, question) for pattern in patterns)
+
+
+def duplicate_title_clarification(request: dict[str, Any]) -> dict[str, Any] | None:
+    """검색 결과에 같은 제목의 서로 다른 문서가 있으면 선택지를 만든다.
+
+    직업·시대처럼 대상을 특정한 질문은 통과시키고, 이름만 묻는 일반 질문에만
+    적용한다. 선택지는 검색 순위가 높은 문서부터 최대 세 건이다.
+    """
+    question = str(request.get("question") or "")
+    grouped: dict[str, dict[str, dict[str, Any]]] = {}
+    for context in request.get("retrieved_contexts") or []:
+        title = str(context.get("title") or "").strip()
+        document_id = str(context.get("document_id") or "").strip()
+        if not title or not document_id or title not in question:
+            continue
+        grouped.setdefault(title, {}).setdefault(document_id, context)
+
+    for title, documents in grouped.items():
+        if len(documents) < 2 or not _is_generic_title_question(question, title):
+            continue
+        ranked = sorted(
+            documents.values(),
+            key=lambda item: int(item.get("retrieval_rank") or 10_000),
+        )[:3]
+        options = []
+        for index, context in enumerate(ranked, start=1):
+            summary = " ".join(str(context.get("content") or "").split())
+            if len(summary) > 55:
+                summary = f"{summary[:55].rstrip()}…"
+            options.append(
+                {
+                    "id": f"entity-{index}",
+                    "label": f"{title} — {summary}" if summary else title,
+                    "source_chunk_ids": [str(context["chunk_id"])],
+                }
+            )
+        return {
+            "reason_code": "ambiguous_entity",
+            "question": f"같은 이름의 항목이 여러 개입니다. 어느 {title}를 말씀하시나요?",
+            "options": options,
+        }
+    return None
+
+
 class CompoundAwareGenerator:
-    """복합 질문 팀 규칙을 먼저 적용하고 단일 질문만 실제 생성기로 보낸다."""
+    """생성 전에 확실히 판정할 수 있는 확인 질문 규칙을 적용한다."""
 
     def __init__(self, delegate: Any) -> None:
         self.delegate = delegate
 
     def invoke(self, request: dict[str, Any]) -> dict[str, Any]:
-        if request.get("clarification_context") is None and is_compound(request["question"]):
-            return EvidencePassthroughGenerator()._clarification_result(request)
+        if request.get("clarification_context") is None:
+            if is_compound(request["question"]):
+                return EvidencePassthroughGenerator()._clarification_result(request)
+            clarification = ambiguous_reference_clarification(request["question"])
+            if clarification is None:
+                clarification = duplicate_title_clarification(request)
+            if clarification is not None:
+                result = EvidencePassthroughGenerator()._clarification_result(request)
+                result["draft_message"] = clarification["question"]
+                result["clarification"] = clarification
+                result["generation_metadata"]["prompt_version"] = "deterministic-clarification-v1"
+                return result
         return self.delegate.invoke(request)
 
 
@@ -381,7 +477,7 @@ def bm25_index_chunk_count() -> int | None:
 
     전체 말뭉치의 일부만 넣은 인덱스로도 검색은 된다. 그러면 낱말 검색이
     닿지 못하는 문서가 생기는데 화면에는 아무 차이가 안 보인다.
-    그래서 조각 수를 읽어 공정 견학 탭에 그대로 띄운다.
+    그래서 조각 수를 읽어 파이프라인 탭에 그대로 띄운다.
     """
     path = bm25_index_path()
     if not path.is_file():
@@ -440,7 +536,7 @@ def build_retriever():
     BM25 인덱스는 Pinecone과 달리 공용이 아니라 각자 로컬에서 만들어야 한다
     (`scripts/build_aks_bm25.py`). 인덱스가 없다고 화면이 죽으면 아직 만들지
     않은 사람은 아무것도 볼 수 없으므로, 없으면 조용히 단독 검색으로 내린다.
-    어느 쪽으로 검색했는지는 공정 견학 탭에 그대로 표시한다.
+    어느 쪽으로 검색했는지는 파이프라인 탭에 그대로 표시한다.
     """
     from rag_indexing.pinecone_store import PineconeRetriever
 

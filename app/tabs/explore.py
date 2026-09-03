@@ -1,4 +1,4 @@
-"""문화유산 탐험 지도.
+"""문화유산 네트워크.
 
 검색한 유산 하나를 뿌리로 두고, 거기서 뻗어 나가는 다른 유산을 보여 준다.
 이름을 누르면 그 유산이 새 뿌리가 되어 지도가 다시 그려진다. 한 번 검색한
@@ -47,10 +47,11 @@ def _reset_to_search(root) -> None:
 
 
 def render() -> None:
-    st.subheader("문화유산 탐험 지도")
+    st.subheader("문화유산 네트워크")
     st.caption(
         "검색한 유산에서 시작해 연결된 다른 유산으로 옮겨 다닙니다. "
-        "이름을 누르면 그 유산이 새 출발점이 되고, 설명과 함께 지도가 다시 그려집니다."
+        "이름에 커서를 올리면 그 유산의 설명이 보이고, 누르면 새 출발점이 되어 "
+        "네트워크가 다시 그려집니다."
     )
     with st.expander("어떤 기준으로 추천하나요?"):
         st.markdown(
@@ -76,7 +77,7 @@ def render() -> None:
 
     result = st.session_state.get("last_result")
     if not result:
-        st.info("질문하기 탭에서 답변을 받은 뒤 탐험 지도를 확인해 주세요.")
+        st.info("질문하기 탭에서 답변을 받은 뒤 문화유산 네트워크를 확인해 주세요.")
         return
 
     book = heritage_graph.catalog()
@@ -138,10 +139,31 @@ def _render_stage(payload: dict) -> None:
                 if st.button(
                     " ",
                     key=f"go-{hit['key']}",
-                    help=f"{hit['title']} — {hit['reason']}",
+                    help=_hover_text(hit),
                 ):
                     _go(hit["document_id"], hit["title"])
                     st.rerun()
+
+
+def _hover_text(hit: dict) -> str:
+    """커서를 올렸을 때 뜨는 말풍선.
+
+    이름만 띄우면 갈지 말지 고를 수가 없다. 지도에 있는 이름은 대부분
+    처음 보는 것이라, 눌러 봐야 무엇인지 알게 되는 화면이었다. 설명 한 줄을
+    먼저 보여 주고, 더 보고 싶으면 누르게 한다.
+    """
+    lines = [f"**{hit['title']}**"]
+    facts = " · ".join(
+        v for v in (hit.get("period"), hit.get("field"), hit.get("item_type")) if v
+    )
+    if facts:
+        lines.append(facts)
+    if hit.get("summary"):
+        lines.append(hit["summary"])
+    if hit.get("reason"):
+        lines.append(f"_{hit['reason']}_")
+    lines.append("눌러서 이 유산으로 옮겨 갑니다.")
+    return "\n\n".join(lines)
 
 
 def _render_trail(searched) -> None:
@@ -155,13 +177,16 @@ def _render_trail(searched) -> None:
     steps += [title for document_id, title in trail if document_id != searched.document_id]
     st.caption(" → ".join(f"`{step}`" for step in steps) + f" → **{root_title}**")
 
-    columns = st.columns([1, 1, 6])
-    if trail and columns[0].button("← 뒤로", use_container_width=True):
-        st.session_state["explore_root"] = trail.pop()
-        st.rerun()
-    if columns[1].button("검색 결과로", use_container_width=True):
-        _reset_to_search(searched)
-        st.rerun()
+    # 좁게 두면 `검색 결과로`가 두 줄로 접힌다. 글자가 들어갈 만큼 넓히고,
+    # 화면이 더 좁아져도 접히지 않도록 CSS에서 줄바꿈을 막는다.
+    with st.container(key="heritage-trail"):
+        columns = st.columns([1, 1.6, 5.4])
+        if trail and columns[0].button("← 뒤로", use_container_width=True):
+            st.session_state["explore_root"] = trail.pop()
+            st.rerun()
+        if columns[1].button("검색 결과로", use_container_width=True):
+            _reset_to_search(searched)
+            st.rerun()
 
 
 def _render_root(root: dict) -> None:

@@ -1,10 +1,10 @@
 # 시스템 아키텍처
 
-> 문서 기준일: 2026-09-02
+> 문서 기준일: 2026-09-03
 >
 > 적용 대상: SKN 33기 3차 프로젝트 `개인 맞춤형 AI 문화유산 가이드`
 >
-> 기준 코드: `main` commit `744b12c`
+> 기준 코드: `main` commit `f38ac05`
 
 ## 1. 설계 목표
 
@@ -49,7 +49,7 @@ flowchart LR
     end
 
     subgraph Evaluation[평가·관찰]
-        TRACE[답변 과정·공정 견학]
+        TRACE[답변 과정·파이프라인]
         RAGAS[RAGAS<br/>Faithfulness·Answer Relevancy]
     end
 
@@ -59,7 +59,7 @@ flowchart LR
     RAGAS -. 평가 결과 .-> UI
 ```
 
-위 구성에서 `app/heritage_graph.py`는 탐험 지도의 연관 항목을 만드는 모듈이다. 이름에 `graph`가 있지만 LangGraph 실행 흐름은 아니다.
+위 구성에서 `app/heritage_graph.py`는 문화유산 네트워크의 연관 항목을 만드는 모듈이다. 이름에 `graph`가 있지만 LangGraph 실행 흐름은 아니다.
 
 ## 3. 배치 위치와 외부 연결
 
@@ -107,18 +107,21 @@ flowchart TB
     SEARCH --> CONTEXT[RetrievedContext 최대 3건]
     CONTEXT --> EVIDENCE{사용 가능한 근거가 있는가?}
     EVIDENCE -- 아니요 --> IE[insufficient_evidence]
-    EVIDENCE -- 예 --> GEN[Ollama 구조화 응답 생성]
+    EVIDENCE -- 예 --> CLARITY{복합 질문·대상 누락·<br/>동명 항목인가?}
+    CLARITY -- 예 --> CLARIFY[needs_clarification]
+    CLARITY -- 아니요 --> GEN[Ollama 구조화 응답 생성]
     GEN --> CHECK{응답 계약·청크 ID가 유효한가?}
     CHECK -- 아니요 --> ERR[generation_error<br/>내부 오류 처리]
     CHECK -- 예 --> TYPE{응답 유형}
     TYPE --> ANSWER[answered]
-    TYPE --> CLARIFY[needs_clarification]
+    TYPE --> MODEL_CLARIFY[모델의 needs_clarification]
     TYPE --> CORRECT[corrected_premise]
     TYPE --> OTHER[근거 부족·안전 거절·범위 밖]
     ANSWER --> CITATION[사용한 청크만 Citation 조립]
     CORRECT --> CITATION
     CITATION --> VIEW[답변·출처·근거 문장 표시]
     CLARIFY --> VIEW
+    MODEL_CLARIFY --> VIEW
     OTHER --> VIEW
     SR --> VIEW
     OUT --> VIEW
@@ -139,8 +142,11 @@ BM25 파일이 없으면 2~6번의 Hybrid 결합 대신 Pinecone Dense 상위 3�
 
 - 기본 `RAG_MIN_RETRIEVAL_SCORE`는 비워 두어 임의 점수로 청크를 제거하지 않는다.
 - 현재 `ContentEvidenceChecker`는 내용이 비어 있는지와 생성기의 근거 부족 판단을 연결하는 임시 구현이다.
-- 생성기는 질문, 설명 수준과 검색 문맥을 받고 JSON Schema에 맞는 결과를 반환한다.
-- `used_chunk_ids`에 검색 결과에 없는 ID가 들어오면 답변을 표시하지 않고 `generation_error`로 처리한다.
+- 복합 질문, `그 궁궐` 같은 대상 누락 표현과 검색 결과의 동명 항목은 확정 가능한 규칙으로 먼저 확인한다. 규칙 밖의 모든 모호한 표현까지 보장하는 범용 판정기는 아니다.
+- 생성기는 질문, 설명 수준과 검색 문맥을 받고 JSON Schema에 맞는 결과를 반환한다. 긴 청크 ID 대신 `CTX-1` 같은 짧은 참조를 사용한다.
+- 반환된 참조는 실제 청크 ID로 복원한다. 한 청크만 가리키는 잘린 ID도 안전하게 복원하고, 근거를 확인할 수 없는 정상 답변은 `insufficient_evidence`로 낮춘다.
+- 정규화 뒤에도 응답 계약이나 ID가 유효하지 않으면 Citation을 만들지 않고 `generation_error`로 처리한다.
+- 보류·확인·거절 응답에는 `used_chunk_ids`를 붙이지 않는다.
 - Citation은 LLM이 새로 작성하지 않는다. 같은 요청에서 보관한 `RetrievedContext`의 제목·URL·본문을 복사해 조립한다.
 
 ## 6. 생성과 개인화
@@ -149,7 +155,7 @@ BM25 파일이 없으면 2~6번의 Hybrid 결합 대신 Pinecone Dense 상위 3�
 | :--- | :--- |
 | 생성 서버 | RunPod의 Ollama HTTP Service |
 | 생성 모델 | `exaone3.5:7.8b-instruct-q8_0` |
-| Prompt 버전 | `prompt-baseline-v0-ollama` |
+| Prompt 버전 | `response-type-v1-ollama` (`prompt-baseline-v0` 기반) |
 | Temperature | `0.0` |
 | Thinking 출력 | 사용하지 않음 (`think=false`) |
 | 설명 수준 | `easy`, `general`, `advanced` |
@@ -176,9 +182,9 @@ BM25 파일이 없으면 2~6번의 Hybrid 결합 대신 Pinecone Dense 상위 3�
 | :--- | :--- |
 | 질문하기 | 질문 입력, 설명 수준 선택, 답변, 출처와 근거 문장 |
 | 답변 과정 | 현재 질문이 검색·생성·출처 조립을 거친 과정 |
-| 공정 견학 | 실제 검색 방식, 검색 후보와 사용한 청크의 변화 |
+| 파이프라인 | 실제 검색 방식, 검색 후보와 사용한 청크의 변화 |
 | 평가 결과 | RAGAS Faithfulness·Answer Relevancy와 평가 상태 |
-| 문화유산 탐험 지도 | 선택 항목과 시대·분야·지역 등이 연결된 연관 항목 |
+| 문화유산 네트워크 | 선택 항목과 시대·분야·지역 등이 연결된 연관 항목 |
 
 환경 변수가 준비되지 않으면 화면은 Mock 모드로 실행한다. Mock 응답은 화면 확인용이며 실제 검색·생성 결과와 구분해 표시한다.
 
@@ -190,7 +196,9 @@ BM25 파일이 없으면 2~6번의 Hybrid 결합 대신 Pinecone Dense 상위 3�
 | 실시간 정보 등 서비스 범위 밖 질문 | 검색 전에 `out_of_scope`로 종료 |
 | 검색 결과 없음·근거 부족 | 추측하지 않고 `insufficient_evidence` 반환 |
 | 여러 질문을 한 번에 입력 | `needs_clarification`으로 한 질문씩 요청 |
-| 잘못된 `used_chunk_ids` | Citation을 만들지 않고 내부 `generation_error` 처리 |
+| 잘린 근거 ID | 한 청크만 가리키는 경우 실제 `chunk_id`로 복원 |
+| 근거를 확인할 수 없는 정상 답변 | `insufficient_evidence`로 낮추고 Citation을 만들지 않음 |
+| 정규화 후에도 잘못된 계약·ID | Citation을 만들지 않고 내부 `generation_error` 처리 |
 | 외부 서비스 오류 | 내부 원문을 화면에 노출하지 않고 사용자용 안내 표시 |
 | API 키 | `.env`에서만 읽고 Git·로그·화면에 값을 출력하지 않음 |
 

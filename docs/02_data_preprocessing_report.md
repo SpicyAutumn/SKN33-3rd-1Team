@@ -1,10 +1,10 @@
 # 수집 데이터 및 데이터 전처리 보고서
 
-> 문서 기준일: 2026-09-02
+> 문서 기준일: 2026-09-03
 >
 > 적용 대상: SKN 33기 3차 프로젝트 `개인 맞춤형 AI 문화유산 가이드`
 >
-> 기준 코드: `main` commit `744b12c`
+> 기준 코드: `main` commit `f38ac05`
 >
 > 데이터 제공 기관: 한국학중앙연구원(AKS)
 
@@ -69,7 +69,13 @@
 | 원본 JSONL 기록 용량 | 620,482,345 bytes |
 | manifest | 51,158,587 bytes |
 
-`aks_full_chunks.jsonl`의 최종 파일 크기와 SHA-256은 제출용 파일을 전달받아 재검증한 뒤 기록한다. Hybrid 평가에 사용한 179,028개 청크 corpus의 기록된 SHA-256은 `444d9fc8e8da5c845610d0a960a43ef04152dd525087e659c511b72382b317e0`이며, 제출 파일과 같은지 다시 확인해야 한다.
+최종 제출본을 재검증한 결과는 다음과 같다. `data/processed`, 전달받은 사본과 BM25 manifest가 같은 청크 체크섬을 가리키는 것도 확인했다.
+
+| 파일 | 크기 | SHA-256 |
+| :--- | ---: | :--- |
+| `aks_full_content.jsonl` | 620,482,345 bytes | `aa9e8c1345609e1d648f74f48ef07d1892c7cb08c0873a3f350317909921c0d7` |
+| `aks_full_chunks.jsonl` | 371,158,516 bytes | `444d9fc8e8da5c845610d0a960a43ef04152dd525087e659c511b72382b317e0` |
+| `manifest.csv` | 51,158,587 bytes | `2bf7e2752216e6fc17ce1ca41e8afecbd9bc9a4acf11a811ec5c978d6073b79f` |
 
 ## 4. 전처리 파이프라인
 
@@ -240,7 +246,7 @@ Retriever Adapter는 v1 metadata의 `source` 또는 `source_url`을 최종 `sour
 | manifest 대상 문서 누락 | 0건 | PASS |
 | 제외 대상의 잘못된 포함 | 0건 | PASS |
 
-검증기는 `chunk_id`, `document_id`, `title`, `content`, `source_url`, `section`, `metadata`의 존재와 자료형을 확인한다. 제출용 `aks_full_chunks_validation.json`에는 입력 청크 파일과 manifest의 경로·파일 크기·SHA-256·검사 시각을 기록해야 한다.
+검증기는 `chunk_id`, `document_id`, `title`, `content`, `source_url`, `section`, `metadata`의 존재와 자료형을 확인한다. 제출용 `aks_full_chunks_validation.json`에는 입력 청크 파일과 manifest의 경로·파일 크기·SHA-256·검사 시각을 기록했다.
 
 ### 9.3 검색 확인
 
@@ -293,15 +299,15 @@ python scripts/search_hybrid_aks.py "경복궁에 대해 알려줘" --top-k 3
 | 문서 수정 시점 자동 반영 없음 | 최신 변경 내용이 즉시 반영되지 않음 | `last_modified_at` 비교와 변경 문서 재수집 |
 | 원본·청크 파일이 Git에 없음 | 새 환경에서 별도 전달 없이는 전체 재현이 어려움 | 제출 ZIP에 파일·체크섬·배치 방법 포함 |
 
-## 12. 제출 ZIP 생성 전 확인
+## 12. 제출 ZIP 확인 결과
 
-- [ ] `aks_full_content.jsonl`의 실제 파일 크기와 SHA-256 기록
-- [ ] `aks_full_chunks.jsonl`의 실제 파일 크기와 SHA-256 기록
-- [ ] `aks_full_chunks_validation.json` 재생성 및 PASS 확인
-- [ ] manifest와 청크 대상 문서가 75,820건으로 일치하는지 확인
-- [ ] 원본 75,835건·제외 15건·청크 179,028건 수치를 README와 PDF에 동일하게 표기
-- [ ] 미디어 파일과 실제 API 키가 ZIP에 포함되지 않았는지 확인
-- [ ] 초기 10,000건 pilot 결과가 전체 결과로 오해되지 않도록 별도 폴더 또는 참고 자료로 구분
+- [x] `aks_full_content.jsonl`의 실제 파일 크기와 SHA-256 기록
+- [x] `aks_full_chunks.jsonl`의 실제 파일 크기와 SHA-256 기록
+- [x] `aks_full_chunks_validation.json` 재생성 및 PASS 확인
+- [x] manifest와 청크 대상 문서가 75,820건으로 일치하는지 확인
+- [x] 원본 75,835건·제외 15건·청크 179,028건 수치를 README와 PDF에 동일하게 표기
+- [x] 미디어 파일과 실제 API 키가 ZIP에 포함되지 않았는지 확인
+- [x] 초기 10,000건 pilot 결과를 전체 결과와 구분
 
 ## 13. 관련 문서
 
